@@ -622,7 +622,7 @@ const PadEdit = ({
                 <Container fluid>
                     <BreadCrumb title="Edit Pad" pageTitle="Pads" />
 
-                    <div className="mb-3">
+                    {/* <div className="mb-3">
                         <span className="badge bg-primary">
                             Editing in: {isGu ? "ગુજરાતી (GU)" : "English (EN)"}
                         </span>
@@ -631,7 +631,7 @@ const PadEdit = ({
                                 ? "બીજી ભાષાનું અનુવાદ ઉમેરવા માટે હેડર ટૉગલમાંથી ભાષા બદલો."
                                 : "Switch language from the header toggle to fill the other translation."}
                         </small>
-                    </div>
+                    </div> */}
 
                     <Row>
                         <Col lg={12}>
@@ -640,14 +640,14 @@ const PadEdit = ({
                                 <Card.Header className="d-flex justify-content-between align-items-center">
                                     <h5 className="card-title mb-0">
                                         {isGu ? "પદની વિગતો" : "Pad Details"}{" "}
-                                        {pad?.id && (
+                                        {/* {pad?.id && (
                                             <span
                                                 className="badge bg-secondary ms-2"
                                                 style={{ fontSize: "10px" }}
                                             >
                                                 ID #{pad.id}
                                             </span>
-                                        )}
+                                        )} */}
                                     </h5>
                                 </Card.Header>
                                 <Card.Body>

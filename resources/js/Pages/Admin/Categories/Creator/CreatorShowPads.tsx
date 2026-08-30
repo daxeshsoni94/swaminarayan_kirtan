@@ -239,7 +239,7 @@ const CreatorShowPads = ({
                     />
 
                     {/* Locale indicator */}
-                    <div className="mb-3">
+                    {/* <div className="mb-3">
                         <span className="badge bg-primary">
                             Viewing in: {isGu ? "ગુજરાતી (GU)" : "English (EN)"}
                         </span>
@@ -248,7 +248,7 @@ const CreatorShowPads = ({
                                 ? "બીજી ભાષાનું અનુવાદ ઉમેરવા માટે હેડર ટૉગલમાંથી ભાષા બદલો."
                                 : "Switch language from the header toggle to fill the other translation."}
                         </small>
-                    </div>
+                    </div> */}
 
                     <Row>
                         <Col lg={12}>
@@ -269,7 +269,12 @@ const CreatorShowPads = ({
                                     </div>
                                     <div className="d-flex gap-2">
                                         <Link
-                                            href="#"
+                                            href={route(
+                                                "role.category.creatorlist",
+                                                {
+                                                    rolePrefix: rolePrefix,
+                                                },
+                                            )}
                                             className="btn btn-secondary btn-sm"
                                         >
                                             <i className="ri-arrow-left-line me-1"></i>

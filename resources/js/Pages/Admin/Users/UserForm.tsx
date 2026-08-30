@@ -168,18 +168,6 @@ const UserForm = ({
                         pageTitle={isGu ? "વપરાશકર્તાઓ" : "Users"}
                     />
 
-                    <div className="mb-3">
-                        <span className="badge bg-primary">
-                            {isGu
-                                ? "ફોર્મ: ગુજરાતી (GU)"
-                                : "Form: English (EN)"}
-                        </span>
-                        <small className="text-muted ms-2">
-                            Switch language from the header toggle to edit the
-                            other translation.
-                        </small>
-                    </div>
-
                     <Row>
                         <Col lg={12}>
                             <Card>
@@ -192,14 +180,6 @@ const UserForm = ({
                                             : isGu
                                               ? "નવો વપરાશકર્તા"
                                               : "New User"}
-                                        {isEdit && (
-                                            <span
-                                                className="badge bg-secondary ms-2"
-                                                style={{ fontSize: "10px" }}
-                                            >
-                                                ID #{user!.id}
-                                            </span>
-                                        )}
                                     </h5>
                                 </Card.Header>
                                 <Card.Body>
@@ -242,11 +222,6 @@ const UserForm = ({
                                                             `name.${locale}`
                                                         ] || errors.name}
                                                     </Form.Control.Feedback>
-                                                    <Form.Text className="text-muted">
-                                                        {isGu
-                                                            ? "બીજી ભાષા માટે હેડર ટૉગલ બદલો."
-                                                            : "Switch header toggle to fill the other language."}
-                                                    </Form.Text>
                                                 </Form.Group>
                                             </Col>
 

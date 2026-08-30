@@ -114,19 +114,19 @@ const EventForm = ({ event = null }) => {
                     />
 
                     {/* Locale indicator */}
-                    <div className="mb-3">
-                        <span className="badge bg-primary">
-                            {isGu
-                                ? "ફોર્મ: ગુજરાતી (GU)"
-                                : "Form: English (EN)"}
-                        </span>
+                        {/* <div className="mb-3">
+                            <span className="badge bg-primary">
+                                {isGu
+                                    ? "ફોર્મ: ગુજરાતી (GU)"
+                                    : "Form: English (EN)"}
+                            </span>
 
-                        <small className="text-muted ms-2">
-                            {isGu
-                                ? "બીજી ભાષામાં ફેરફાર કરવા માટે હેડર ટૉગલ બદલો."
-                                : "Switch language from the header toggle to edit the other translation."}
-                        </small>
-                    </div>
+                            <small className="text-muted ms-2">
+                                {isGu
+                                    ? "બીજી ભાષામાં ફેરફાર કરવા માટે હેડર ટૉગલ બદલો."
+                                    : "Switch language from the header toggle to edit the other translation."}
+                            </small>
+                        </div> */}
 
                     <Row>
                         <Col lg={12}>
@@ -141,16 +141,6 @@ const EventForm = ({ event = null }) => {
                                               ? "નવું પ્રસંગ"
                                               : "New Event"}
 
-                                        {isEdit && (
-                                            <span
-                                                className="badge bg-secondary ms-2"
-                                                style={{
-                                                    fontSize: "10px",
-                                                }}
-                                            >
-                                                ID #{event.id}
-                                            </span>
-                                        )}
                                     </h5>
                                 </Card.Header>
 
@@ -212,12 +202,6 @@ const EventForm = ({ event = null }) => {
                                                 {errors[`value.${locale}`] ||
                                                     errors.value}
                                             </Form.Control.Feedback>
-
-                                            <Form.Text className="text-muted">
-                                                {isGu
-                                                    ? "બીજી ભાષા માટે હેડર ટૉગલ બદલો."
-                                                    : "Switch the header toggle to fill the other language."}
-                                            </Form.Text>
                                         </Form.Group>
 
                                         {/* Both languages reference */}

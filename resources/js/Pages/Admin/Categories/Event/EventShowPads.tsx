@@ -86,16 +86,14 @@ const storageUrl = (fileUrl: string | null | undefined) => {
 };
 
 // ─── Show (All Pads of a Swami) ───────────────────────────────────────────────
-const EventShowPads = ({
-    swami,
-    pads = [],
-}: {
-    swami: any;
-    pads?: any[];
-}) => {
+const EventShowPads = ({ swami, pads = [] }: { swami: any; pads?: any[] }) => {
     const page = usePage().props as { locale?: string };
     const locale = (page.locale === "gu" ? "gu" : "en") as "en" | "gu";
     const isGu = locale === "gu";
+    const { auth } = usePage().props as any;
+    const rolePrefix = auth?.user?.role?.name
+        ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
+        : "admin";
 
     const swamiName =
         t(swami?.name, locale) ||
@@ -236,7 +234,7 @@ const EventShowPads = ({
                     />
 
                     {/* Locale indicator */}
-                    <div className="mb-3">
+                    {/* <div className="mb-3">
                         <span className="badge bg-primary">
                             Viewing in: {isGu ? "ગુજરાતી (GU)" : "English (EN)"}
                         </span>
@@ -245,7 +243,7 @@ const EventShowPads = ({
                                 ? "બીજી ભાષાનું અનુવાદ ઉમેરવા માટે હેડર ટૉગલમાંથી ભાષા બદલો."
                                 : "Switch language from the header toggle to fill the other translation."}
                         </small>
-                    </div>
+                    </div> */}
 
                     <Row>
                         <Col lg={12}>
@@ -266,7 +264,9 @@ const EventShowPads = ({
                                     </div>
                                     <div className="d-flex gap-2">
                                         <Link
-                                            href="#"
+                                            href={route("role.category.eventlist", {
+                                                rolePrefix: rolePrefix,
+                                            })}
                                             className="btn btn-secondary btn-sm"
                                         >
                                             <i className="ri-arrow-left-line me-1"></i>
@@ -302,7 +302,7 @@ const EventShowPads = ({
                                 <Card.Body className="p-0">
                                     {pads.length === 0 ? (
                                         <div className="text-center py-5 text-muted">
-                                             {isGu
+                                            {isGu
                                                 ? "આ પ્રસંગ સાથે કોઈ પદ જોડાયેલ નથી."
                                                 : "No pads found for this Event"}
                                         </div>

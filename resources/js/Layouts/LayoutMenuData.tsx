@@ -37,7 +37,7 @@ const Navdata = () => {
         "All Pages": { en: "All Pages", gu: "બધા પેજીસ" },
         Published: { en: "Published", gu: "પ્રકાશિત" },
         Drafts: { en: "Drafts", gu: "ડ્રાફ્ટ્સ" },
-        Contacts: { en: "Contacts", gu: "કોન્ટેક્ટ્સ" },
+        Contacts: { en: "Contacts", gu: "સંપર્કો" },
         "All Submissions": { en: "All Submissions", gu: "બધા સબમિશન્સ" },
         New: { en: "New", gu: "નવા" },
         Read: { en: "Read", gu: "વાંચેલા" },

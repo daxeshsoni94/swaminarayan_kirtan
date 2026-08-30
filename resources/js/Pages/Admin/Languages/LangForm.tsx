@@ -121,14 +121,14 @@ const LangForm: React.FC<Props> = ({ language = null }) => {
                                         {isEdit
                                             ? tr.cardTitleEdit
                                             : tr.cardTitleCreate}
-                                        {isEdit && (
+                                        {/* {isEdit && (
                                             <span
                                                 className="badge bg-secondary ms-2"
                                                 style={{ fontSize: "10px" }}
                                             >
                                                 ID #{language!.id}
                                             </span>
-                                        )}
+                                        )} */}
                                     </h5>
                                 </Card.Header>
 

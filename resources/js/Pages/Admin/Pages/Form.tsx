@@ -4,6 +4,8 @@ import BreadCrumb from "../../../Components/Common/BreadCrumb";
 import { Head, Link, useForm, usePage } from "@inertiajs/react";
 import Layout from "../../../Layouts";
 import { toast } from "react-toastify";
+import { CKEditor } from "@ckeditor/ckeditor5-react";
+import ClassicEditor from "@ckeditor/ckeditor5-build-classic";
 
 interface PageItem {
     id: number;
@@ -163,14 +165,14 @@ const PageForm: React.FC<Props> = ({ page = null }) => {
                                         {isEdit
                                             ? tr.cardTitleEdit
                                             : tr.cardTitleCreate}
-                                        {isEdit && (
+                                        {/* {isEdit && (
                                             <span
                                                 className="badge bg-secondary ms-2"
                                                 style={{ fontSize: "10px" }}
                                             >
                                                 ID #{page!.id}
                                             </span>
-                                        )}
+                                        )} */}
                                     </h5>
                                 </Card.Header>
 
@@ -316,7 +318,7 @@ const PageForm: React.FC<Props> = ({ page = null }) => {
                                             </Col>
 
                                             {/* Content */}
-                                            <Col lg={12}>
+                                            {/* <Col lg={12}>
                                                 <Form.Group>
                                                     <Form.Label htmlFor="page-content">
                                                         {tr.contentLabel}{" "}
@@ -346,6 +348,50 @@ const PageForm: React.FC<Props> = ({ page = null }) => {
                                                         {errors.content ||
                                                             tr.contentRequired}
                                                     </Form.Control.Feedback>
+                                                </Form.Group>
+                                            </Col> */}
+                                            {/* Content */}
+                                            <Col lg={12}>
+                                                <Form.Group>
+                                                    <Form.Label htmlFor="page-content">
+                                                        {tr.contentLabel}{" "}
+                                                        <span className="text-danger">
+                                                            *
+                                                        </span>
+                                                    </Form.Label>
+                                                    <div
+                                                        className={
+                                                            errors.content
+                                                                ? "is-invalid"
+                                                                : ""
+                                                        }
+                                                    >
+                                                        <CKEditor
+                                                            editor={
+                                                                ClassicEditor
+                                                            }
+                                                            data={data.content}
+                                                            onChange={(
+                                                                _event,
+                                                                editor,
+                                                            ) => {
+                                                                setData(
+                                                                    "content",
+                                                                    editor.getData(),
+                                                                );
+                                                            }}
+                                                            config={{
+                                                                placeholder:
+                                                                    tr.contentPlaceholder,
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    {errors.content && (
+                                                        <div className="invalid-feedback d-block">
+                                                            {errors.content ||
+                                                                tr.contentRequired}
+                                                        </div>
+                                                    )}
                                                 </Form.Group>
                                             </Col>
                                         </Row>

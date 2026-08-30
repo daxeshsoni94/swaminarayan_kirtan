@@ -122,7 +122,7 @@ const CreatorForm = ({ creator = null }: CreatorFormProps) => {
                         pageTitle={isGu ? "રચયિતા" : "Creators"}
                     />
 
-                    <div className="mb-3">
+                    {/* <div className="mb-3">
                         <span className="badge bg-primary">
                             {isGu
                                 ? "ફોર્મ: ગુજરાતી (GU)"
@@ -132,7 +132,7 @@ const CreatorForm = ({ creator = null }: CreatorFormProps) => {
                             Switch language from the header toggle to edit the
                             other translation.
                         </small>
-                    </div>
+                    </div> */}
 
                     <Row>
                         <Col lg={12}>
@@ -146,14 +146,14 @@ const CreatorForm = ({ creator = null }: CreatorFormProps) => {
                                             : isGu
                                               ? "નવો ક્રિએટર"
                                               : "New Creator"}
-                                        {isEdit && (
+                                        {/* {isEdit && (
                                             <span
                                                 className="badge bg-secondary ms-2"
                                                 style={{ fontSize: "10px" }}
                                             >
                                                 ID #{creator!.id}
                                             </span>
-                                        )}
+                                        )} */}
                                     </h5>
                                 </Card.Header>
                                 <Card.Body>
@@ -210,11 +210,11 @@ const CreatorForm = ({ creator = null }: CreatorFormProps) => {
                                                 {errors[`value.${locale}`] ||
                                                     errors.value}
                                             </Form.Control.Feedback>
-                                            <Form.Text className="text-muted">
+                                            {/* <Form.Text className="text-muted">
                                                 {isGu
                                                     ? "બીજી ભાષા માટે હેડર ટૉગલ બદલો."
                                                     : "Switch header toggle to fill the other language."}
-                                            </Form.Text>
+                                            </Form.Text> */}
                                         </Form.Group>
 
                                         {/* Optional: show both languages for reference */}

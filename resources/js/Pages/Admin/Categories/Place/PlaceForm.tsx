@@ -92,7 +92,7 @@ const PlaceForm = ({ place = null }) => {
                     isEdit
                         ? isGu
                             ? "સ્થળ સંપાદિત કરો"
-                            : "Edit Event"
+                            : "Edit Place"
                         : isGu
                           ? "સ્થળ ઉમેરો"
                           : "Add Place"
@@ -106,7 +106,7 @@ const PlaceForm = ({ place = null }) => {
                             isEdit
                                 ? isGu
                                     ? "સ્થળ સંપાદિત કરો"
-                                    : "Edit Event"
+                                    : "Edit Place"
                                 : isGu
                                   ? "સ્થળ ઉમેરો"
                                   : "Add Place"
@@ -115,7 +115,7 @@ const PlaceForm = ({ place = null }) => {
                     />
 
                     {/* Locale indicator */}
-                    <div className="mb-3">
+                    {/* <div className="mb-3">
                         <span className="badge bg-primary">
                             {isGu
                                 ? "ફોર્મ: ગુજરાતી (GU)"
@@ -127,7 +127,7 @@ const PlaceForm = ({ place = null }) => {
                                 ? "બીજી ભાષામાં ફેરફાર કરવા માટે હેડર ટૉગલ બદલો."
                                 : "Switch language from the header toggle to edit the other translation."}
                         </small>
-                    </div>
+                    </div> */}
 
                     <Row>
                         <Col lg={12}>
@@ -142,7 +142,7 @@ const PlaceForm = ({ place = null }) => {
                                               ? "નવું સ્થળ"
                                               : "New Place"}
 
-                                        {isEdit && (
+                                        {/* {isEdit && (
                                             <span
                                                 className="badge bg-secondary ms-2"
                                                 style={{
@@ -151,7 +151,7 @@ const PlaceForm = ({ place = null }) => {
                                             >
                                                 ID #{place.id}
                                             </span>
-                                        )}
+                                        )} */}
                                     </h5>
                                 </Card.Header>
 
@@ -211,12 +211,6 @@ const PlaceForm = ({ place = null }) => {
                                                 {errors[`value.${locale}`] ||
                                                     errors.value}
                                             </Form.Control.Feedback>
-
-                                            <Form.Text className="text-muted">
-                                                {isGu
-                                                    ? "બીજી ભાષા માટે હેડર ટૉગલ બદલો."
-                                                    : "Switch the header toggle to fill the other language."}
-                                            </Form.Text>
                                         </Form.Group>
 
                                         {/* Both languages reference */}

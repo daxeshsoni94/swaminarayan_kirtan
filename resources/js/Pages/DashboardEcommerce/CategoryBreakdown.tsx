@@ -37,8 +37,7 @@ const CategoryBreakdown = ({ data }: CategoryBreakdownProps) => {
 
     const translatedLabels =
         data?.labels?.map((label) => getTranslatedLabel(label)) ?? [];
-    
-        
+
     return (
         <React.Fragment>
             <Col xl={4}>
@@ -46,12 +45,12 @@ const CategoryBreakdown = ({ data }: CategoryBreakdownProps) => {
                     <Card.Header className="align-items-center d-flex">
                         <h4 className="card-title mb-0 flex-grow-1">
                             {locale === "gu"
-                                ? "કેટેગરી પ્રકાર પ્રમાણે સામગ્રી"
+                                ? "કેટેગરી પ્રકાર પ્રમાણે કન્ટેન્ટ"
                                 : "Content by Category Type"}
                         </h4>
                         <div className="flex-shrink-0">
                             <Dropdown className="card-header-dropdown">
-                                <Dropdown.Toggle
+                                {/* <Dropdown.Toggle
                                     as="a"
                                     className="text-reset dropdown-btn arrow-none"
                                     role="button"
@@ -60,16 +59,18 @@ const CategoryBreakdown = ({ data }: CategoryBreakdownProps) => {
                                         {locale === "gu" ? "રિપોર્ટ" : "Report"}
                                         <i className="mdi mdi-chevron-down ms-1"></i>
                                     </span>
-                                </Dropdown.Toggle>
+                                </Dropdown.Toggle> */}
                                 <Dropdown.Menu className="dropdown-menu-end">
                                     <Dropdown.Item>
                                         {locale === "gu"
                                             ? "રિપોર્ટ ડાઉનલોડ કરો"
                                             : "Download Report"}
                                     </Dropdown.Item>
-                                    <Dropdown.Item>{locale === "gu"
+                                    <Dropdown.Item>
+                                        {locale === "gu"
                                             ? "એક્સપોર્ટ કરો"
-                                            : "Export"}</Dropdown.Item>
+                                            : "Export"}
+                                    </Dropdown.Item>
                                 </Dropdown.Menu>
                             </Dropdown>
                         </div>

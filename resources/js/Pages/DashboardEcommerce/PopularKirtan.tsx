@@ -112,7 +112,7 @@ const PopularKirtans = ({ item, total }: Props) => {
                         </h4>
                         <div className="flex-shrink-0">
                             <Dropdown className="card-header-dropdown">
-                                <Dropdown.Toggle
+                                {/* <Dropdown.Toggle
                                     as="a"
                                     className="text-reset arrow-none"
                                     role="button"
@@ -124,7 +124,7 @@ const PopularKirtans = ({ item, total }: Props) => {
                                         {tr("All time")}
                                         <i className="mdi mdi-chevron-down ms-1"></i>
                                     </span>
-                                </Dropdown.Toggle>
+                                </Dropdown.Toggle> */}
                                 <Dropdown.Menu className="dropdown-menu-end">
                                     <Dropdown.Item>{tr("Today")}</Dropdown.Item>
                                     <Dropdown.Item>

@@ -383,7 +383,7 @@ const Favorites = ({
                             <Row className="g-3 align-items-end">
                                 {/* Category Type */}
 
-                                <Col md={4} lg={4}>
+                                <Col md={5} lg={5}>
                                     <Form.Label className="fw-semibold">
                                         {isGu
                                             ? "કેટેગરી પ્રકાર"
@@ -421,7 +421,7 @@ const Favorites = ({
 
                                 {/* Category Value */}
 
-                                <Col md={4} lg={4}>
+                                <Col md={5} lg={5}>
                                     <Form.Label className="fw-semibold">
                                         {isGu
                                             ? "કેટેગરી વેલ્યુ"
@@ -462,7 +462,7 @@ const Favorites = ({
 
                                 {/* Clear */}
 
-                                <Col md={4} lg={4}>
+                                <Col md={2} lg={2}>
                                     <button
                                         type="button"
                                         className="btn btn-soft-secondary w-100"

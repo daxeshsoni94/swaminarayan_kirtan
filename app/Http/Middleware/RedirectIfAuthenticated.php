@@ -7,6 +7,7 @@ use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
+use Illuminate\Support\Str;
 
 class RedirectIfAuthenticated
 {
@@ -21,7 +22,17 @@ class RedirectIfAuthenticated
 
         foreach ($guards as $guard) {
             if (Auth::guard($guard)->check()) {
-                return redirect(RouteServiceProvider::HOME);
+                // return redirect(RouteServiceProvider::HOME);
+                $user = Auth::guard($guard)->user();
+                $role = $user->role?->name;    // Get user's role
+                if (!$role) {
+                    abort(403, 'Role not assigned.');
+                }
+                $rolePrefix = Str::slug($role);
+
+
+                // Redirect according to role
+                return redirect()->route('role.pads.list', ['rolePrefix' => $rolePrefix,]);
             }
         }
 

@@ -90,4 +90,6 @@ class User extends Authenticatable
         return $this->belongsToMany(Pad::class, 'user_favorite_pads')
             ->withTimestamps();
     }
+
+    
 }

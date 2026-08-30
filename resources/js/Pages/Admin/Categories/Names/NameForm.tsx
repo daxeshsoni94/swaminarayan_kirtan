@@ -103,28 +103,13 @@ const NameForm = ({ names = null }) => {
                             isEdit
                                 ? isGu
                                     ? "નામ સંપાદિત કરો"
-                                    : "Edit Event"
+                                    : "Edit Name"
                                 : isGu
                                   ? "નામ ઉમેરો"
                                   : "Add Name"
                         }
                         pageTitle={isGu ? "નામ" : "Name"}
                     />
-
-                    {/* Locale indicator */}
-                    <div className="mb-3">
-                        <span className="badge bg-primary">
-                            {isGu
-                                ? "ફોર્મ: ગુજરાતી (GU)"
-                                : "Form: English (EN)"}
-                        </span>
-
-                        <small className="text-muted ms-2">
-                            {isGu
-                                ? "બીજી ભાષામાં ફેરફાર કરવા માટે હેડર ટૉગલ બદલો."
-                                : "Switch language from the header toggle to edit the other translation."}
-                        </small>
-                    </div>
 
                     <Row>
                         <Col lg={12}>
@@ -138,17 +123,6 @@ const NameForm = ({ names = null }) => {
                                             : isGu
                                               ? "નવું નામ"
                                               : "New Name"}
-
-                                        {isEdit && (
-                                            <span
-                                                className="badge bg-secondary ms-2"
-                                                style={{
-                                                    fontSize: "10px",
-                                                }}
-                                            >
-                                                ID #{names.id}
-                                            </span>
-                                        )}
                                     </h5>
                                 </Card.Header>
 
@@ -208,12 +182,6 @@ const NameForm = ({ names = null }) => {
                                                 {errors[`value.${locale}`] ||
                                                     errors.value}
                                             </Form.Control.Feedback>
-
-                                            <Form.Text className="text-muted">
-                                                {isGu
-                                                    ? "બીજી ભાષા માટે હેડર ટૉગલ બદલો."
-                                                    : "Switch the header toggle to fill the other language."}
-                                            </Form.Text>
                                         </Form.Group>
 
                                         {/* Both languages reference */}

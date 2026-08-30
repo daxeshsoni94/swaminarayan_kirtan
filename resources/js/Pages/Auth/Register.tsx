@@ -242,19 +242,19 @@ export default function Register() {
                                                     </Form.Control.Feedback>
                                                 </div>
 
-                                                <div className="mb-4 mt-4">
+                                                {/* <div className="mb-4 mt-4">
                                                     <p className="mb-0 fs-12 text-muted fst-italic">
                                                         By registering you agree
                                                         to the to KirtanHub.
-                                                        {/* <Link
+                                                        <Link
                                                             href="#"
                                                             className="text-primary text-decoration-underline fst-normal fw-medium ms-2"
                                                         >
                                                             {" "}
                                                             Terms of Use
-                                                        </Link> */}
+                                                        </Link>
                                                     </p>
-                                                </div>
+                                                </div> */}
 
                                                 <Button
                                                     type="submit"

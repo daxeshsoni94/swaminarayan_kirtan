@@ -95,6 +95,10 @@ const AdjectivesShowPads = ({
 }) => {
     const page = usePage().props as { locale?: string };
     const locale = (page.locale === "gu" ? "gu" : "en") as "en" | "gu";
+    const { auth } = usePage().props as any;
+    const rolePrefix = auth?.user?.role?.name
+        ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
+        : "admin";
     const isGu = locale === "gu";
 
     const swamiName =
@@ -236,7 +240,7 @@ const AdjectivesShowPads = ({
                     />
 
                     {/* Locale indicator */}
-                    <div className="mb-3">
+                    {/* <div className="mb-3">
                         <span className="badge bg-primary">
                             Viewing in: {isGu ? "ગુજરાતી (GU)" : "English (EN)"}
                         </span>
@@ -245,7 +249,7 @@ const AdjectivesShowPads = ({
                                 ? "બીજી ભાષાનું અનુવાદ ઉમેરવા માટે હેડર ટૉગલમાંથી ભાષા બદલો."
                                 : "Switch language from the header toggle to fill the other translation."}
                         </small>
-                    </div>
+                    </div> */}
 
                     <Row>
                         <Col lg={12}>
@@ -266,7 +270,12 @@ const AdjectivesShowPads = ({
                                     </div>
                                     <div className="d-flex gap-2">
                                         <Link
-                                            href="#"
+                                            href={route(
+                                                "role.category.adjectivelist",
+                                                {
+                                                    rolePrefix: rolePrefix,
+                                                },
+                                            )}
                                             className="btn btn-secondary btn-sm"
                                         >
                                             <i className="ri-arrow-left-line me-1"></i>

@@ -113,7 +113,7 @@ const BhavForm = ({ bhav = null }) => {
                     />
 
                     {/* Locale indicator */}
-                    <div className="mb-3">
+                    {/* <div className="mb-3">
                         <span className="badge bg-primary">
                             {isGu
                                 ? "ફોર્મ: ગુજરાતી (GU)"
@@ -125,7 +125,7 @@ const BhavForm = ({ bhav = null }) => {
                                 ? "બીજી ભાષામાં ફેરફાર કરવા માટે હેડર ટૉગલ બદલો."
                                 : "Switch language from the header toggle to edit the other translation."}
                         </small>
-                    </div>
+                    </div> */}
 
                     <Row>
                         <Col lg={12}>
@@ -140,7 +140,7 @@ const BhavForm = ({ bhav = null }) => {
                                               ? "નવો ભાવ"
                                               : "New Bhav"}
 
-                                        {isEdit && (
+                                        {/* {isEdit && (
                                             <span
                                                 className="badge bg-secondary ms-2"
                                                 style={{
@@ -149,7 +149,7 @@ const BhavForm = ({ bhav = null }) => {
                                             >
                                                 ID #{bhav.id}
                                             </span>
-                                        )}
+                                        )} */}
                                     </h5>
                                 </Card.Header>
 
@@ -210,11 +210,11 @@ const BhavForm = ({ bhav = null }) => {
                                                     errors.value}
                                             </Form.Control.Feedback>
 
-                                            <Form.Text className="text-muted">
+                                            {/* <Form.Text className="text-muted">
                                                 {isGu
                                                     ? "બીજી ભાષા માટે હેડર ટૉગલ બદલો."
                                                     : "Switch the header toggle to fill the other language."}
-                                            </Form.Text>
+                                            </Form.Text> */}
                                         </Form.Group>
 
                                         {/* Both languages reference */}

@@ -106,7 +106,7 @@ class DashboardController extends Controller
             // RecentPads (was RecentKirtans)
             'recentPads' => Pad::query()
                 ->latest('updated_at')
-                ->take(5)
+                ->take(7)
                 ->get()
                 ->map(fn(Pad $pad) => [
                     'id' => $pad->id,

@@ -88,10 +88,7 @@ Route::middleware('auth')->group(function () {
 | ADMIN PANEL  →  all routes start with /admin
 |--------------------------------------------------------------------------
 */
-// Route::middleware(['auth', 'role.prefix'])
-//     ->prefix('{role}')
-//     ->name('role.')
-//     ->group(function () {
+
 Route::middleware(['auth', 'role.prefix'])
     ->prefix('{rolePrefix}')
     ->name('role.')

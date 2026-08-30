@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Inertia\Response;
+use Illuminate\Support\Str;
 
 class AuthenticatedSessionController extends Controller
 {
@@ -39,7 +40,7 @@ class AuthenticatedSessionController extends Controller
         $rolePrefix = $user->role?->name
             ? strtolower(str_replace(' ', '-', $user->role->name))
             : 'admin';
-            
+
         if ($user->can('dashboard.view')) {
             return redirect()->route('role.dashboard.index', [
                 'rolePrefix' => $rolePrefix,
@@ -52,6 +53,25 @@ class AuthenticatedSessionController extends Controller
         ]);
     }
 
+
+    private function redirectByRole($user): RedirectResponse
+    {
+        $rolePrefix = Str::slug(
+            $user->role?->name ?? 'admin'
+        );
+
+        // Dashboard permission
+        if ($user->can('dashboard.view')) {
+            return redirect()->route('role.dashboard.index', [
+                'rolePrefix' => $rolePrefix,
+            ]);
+        }
+
+        // No dashboard permission → Pads List
+        return redirect()->route('role.pads.list', [
+            'rolePrefix' => $rolePrefix,
+        ]);
+    }
     /**
      * Destroy an authenticated session.
      */

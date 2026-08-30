@@ -377,15 +377,16 @@ const Show = ({
                                                 {isGu ? "ફેરફાર કરો" : "Edit"}
                                             </Link>
                                         )}
-                                        <Link
-                                            href={route("role.pads.list", {
-                                                rolePrefix: rolePrefix,
-                                            })}
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                window.history.back()
+                                            }
                                             className="btn btn-secondary btn-sm"
                                         >
                                             <i className="ri-arrow-left-line me-1"></i>
                                             {isGu ? "પાછળ જાઓ" : "Back"}
-                                        </Link>
+                                        </button>
                                     </div>
                                 </Card.Header>
                                 <Card.Body>

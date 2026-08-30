@@ -159,14 +159,14 @@ const RoleForm: React.FC<Props> = ({ role = null, permissions = {} }) => {
                                         {isEdit
                                             ? tr.cardTitleEdit
                                             : tr.cardTitleCreate}
-                                        {isEdit && (
+                                        {/* {isEdit && (
                                             <span
                                                 className="badge bg-secondary ms-2"
                                                 style={{ fontSize: "10px" }}
                                             >
                                                 ID #{role!.id}
                                             </span>
-                                        )}
+                                        )} */}
                                     </h5>
                                 </Card.Header>
 
