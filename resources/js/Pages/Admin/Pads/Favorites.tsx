@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 
-import { Card, Col, Container, Row, Table, Badge, Form } from "react-bootstrap";
+import { Card, Col, Container, Row, Table, Badge, Form, OverlayTrigger, Tooltip } from "react-bootstrap";
 
 import { Head, Link, router, usePage } from "@inertiajs/react";
 
@@ -8,37 +8,58 @@ import BreadCrumb from "../../../Components/Common/BreadCrumb";
 
 import Layout from "../../../Layouts";
 
-import { toast, ToastContainer } from "react-toastify";
+import { gujaratiNumber } from "../../../utils/number";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Translation helper
+// Translation helper for dynamic multilingual values
 // ─────────────────────────────────────────────────────────────────────────────
 
-const t = (value: any, locale = "en"): string => {
-    if (value == null) return "";
+const tValue = (value: any, locale: string): string => {
+    if (value == null) {
+        return "";
+    }
 
     if (typeof value === "string") {
         return value;
     }
 
     if (typeof value === "object") {
-        return (
-            value[locale] ??
-            value.en ??
-            value.gu ??
-            Object.values(value)[0] ??
-            ""
-        );
+        return value[locale] ?? Object.values(value)[0] ?? "";
     }
 
     return String(value);
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Central translation helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+const createTranslator = (translations: Record<string, any>) => {
+    return (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ): string => {
+        let text = translations[key] ?? key;
+
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(`:${name}`, String(value));
+        });
+
+        return text;
+    };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Status Badge
 // ─────────────────────────────────────────────────────────────────────────────
 
-const StatusBadge = ({ status, isGu }: { status?: string; isGu: boolean }) => {
+const StatusBadge = ({
+    status,
+    t,
+}: {
+    status?: string;
+    t: (key: string, replacements?: Record<string, string | number>) => string;
+}) => {
     const key = (status || "").toLowerCase();
 
     const map: Record<string, string> = {
@@ -52,9 +73,13 @@ const StatusBadge = ({ status, isGu }: { status?: string; isGu: boolean }) => {
     let label = status || "—";
 
     if (key === "save" || key === "published") {
-        label = isGu ? "પ્રકાશિત" : "Published";
+        label = t("published");
     } else if (key === "draft") {
-        label = isGu ? "ડ્રાફ્ટ" : "Draft";
+        label = t("draft");
+    } else if (key === "active") {
+        label = t("active");
+    } else if (key === "inactive") {
+        label = t("inactive");
     }
 
     return (
@@ -70,38 +95,38 @@ const StatusBadge = ({ status, isGu }: { status?: string; isGu: boolean }) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Date
+// Date formatter
+// Format: Day Month, Year
+// Example English: 10 September, 2026
+// Example Gujarati: ૧૦ સપ્ટેમ્બર, ૨૦૨૬
 // ─────────────────────────────────────────────────────────────────────────────
 
-const formatDate = (value: any) => {
-    if (value === null || value === undefined || value === "") {
+const formatDate = (value: any, locale: string): string => {
+    if (!value) {
         return "—";
     }
 
-    const str = String(value).trim();
+    const date = new Date(value);
 
-    const m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (Number.isNaN(date.getTime())) {
+        return String(value);
+    }
 
-    if (!m) return str;
+    const parts = new Intl.DateTimeFormat(locale, {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+    }).formatToParts(date);
 
-    const months = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-    ];
+    const day = parts.find((part) => part.type === "day")?.value ?? "";
 
-    const [, year, month, day] = m;
+    const month = parts.find((part) => part.type === "month")?.value ?? "";
 
-    return `${day} ${months[Number(month) - 1]} ${year}`;
+    const year = parts.find((part) => part.type === "year")?.value ?? "";
+
+    const formatted = `${day} ${month}, ${year}`;
+
+    return gujaratiNumber(formatted, locale);
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -122,23 +147,28 @@ const getRecording = (pad: any) => {
 
 const Favorites = ({
     pads = [],
-    categoryTypes = [],
+    filterCategoryOptions = [],
     filters,
     totalFavorites = 0,
 }: any) => {
     const page = usePage().props as any;
 
-    const locale = page.locale === "gu" ? "gu" : "en";
+    const { auth, translations = {}, locale } = page;
 
-    const isGu = locale === "gu";
-    const { auth } = usePage().props as any;
+    // Current application locale
+    const currentLocale = locale || "gu";
+
+    // Central translator
+    const tr = useMemo(() => createTranslator(translations), [translations]);
+
+    // Dynamic role prefix
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
     // State
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
 
     const [search, setSearch] = useState(filters?.search ?? "");
 
@@ -148,58 +178,74 @@ const Favorites = ({
         filters?.category_value ?? "",
     );
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Category types
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // Category Types
+    // ─────────────────────────────────────────────────────────────────────
 
     const types = useMemo(() => {
         const map = new Map<string, any>();
 
-        categoryTypes.forEach((item: any) => {
-            const key = item.type_en || item.type_gu;
+        filterCategoryOptions.forEach((item: any) => {
+            // Prefer object style, then any type_* key
+            const key =
+                tValue(item.type, currentLocale) ||
+                item[`type_${currentLocale}`] ||
+                item.type_en ||
+                item.type_gu ||
+                Object.keys(item)
+                    .filter((k) => k.startsWith("type_"))
+                    .map((k) => item[k])
+                    .find(Boolean);
 
             if (!key) return;
-
-            if (!map.has(key)) {
-                map.set(key, item);
-            }
+            if (!map.has(key)) map.set(key, item);
         });
 
         return Array.from(map.values());
-    }, [categoryTypes]);
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Values according to selected TYPE
-    // ─────────────────────────────────────────────────────────────────────────
+    }, [filterCategoryOptions, currentLocale]);
 
     const values = useMemo(() => {
-        if (!activeType) {
-            return [];
-        }
+        if (!activeType) return [];
 
-        const filtered = categoryTypes.filter((item: any) => {
-            return item.type_en === activeType || item.type_gu === activeType;
+        const filtered = filterCategoryOptions.filter((item: any) => {
+            const typeValue =
+                tValue(item.type, currentLocale) ||
+                item[`type_${currentLocale}`] ||
+                item.type_en ||
+                item.type_gu;
+
+            return (
+                typeValue === activeType ||
+                item.type_en === activeType ||
+                item.type_gu === activeType ||
+                item[`type_${currentLocale}`] === activeType
+            );
         });
 
         const map = new Map<string, any>();
 
         filtered.forEach((item: any) => {
-            const key = item.value_en || item.value_gu;
+            const key =
+                tValue(item.value, currentLocale) ||
+                item[`value_${currentLocale}`] ||
+                item.value_en ||
+                item.value_gu ||
+                Object.keys(item)
+                    .filter((k) => k.startsWith("value_"))
+                    .map((k) => item[k])
+                    .find(Boolean);
 
             if (!key) return;
-
-            if (!map.has(key)) {
-                map.set(key, item);
-            }
+            if (!map.has(key)) map.set(key, item);
         });
 
         return Array.from(map.values());
-    }, [categoryTypes, activeType]);
+    }, [filterCategoryOptions, activeType, currentLocale]);
+    // ─────────────────────────────────────────────────────────────────────
+    // Apply Filters
+    // ─────────────────────────────────────────────────────────────────────
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Apply filters
-    // ─────────────────────────────────────────────────────────────────────────
-
+    
     const applyFilters = (
         newSearch = search,
         newType = activeType,
@@ -207,7 +253,7 @@ const Favorites = ({
     ) => {
         router.get(
             route("role.pads.favorites", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
             {
                 search: newSearch || undefined,
@@ -222,9 +268,9 @@ const Favorites = ({
         );
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
     // Search
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
 
     const handleSearch = (value: string) => {
         setSearch(value);
@@ -232,22 +278,20 @@ const Favorites = ({
         applyFilters(value, activeType, activeValue);
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Type
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // Type Change
+    // ─────────────────────────────────────────────────────────────────────
 
     const handleTypeChange = (value: string) => {
         setActiveType(value);
-
-        // When type changes, reset value.
         setActiveValue("");
 
         applyFilters(search, value, "");
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Value
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // Value Change
+    // ─────────────────────────────────────────────────────────────────────
 
     const handleValueChange = (value: string) => {
         setActiveValue(value);
@@ -255,34 +299,31 @@ const Favorites = ({
         applyFilters(search, activeType, value);
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Remove favorite
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // Remove from Favorites
+    // ─────────────────────────────────────────────────────────────────────
 
     const handleRemove = (padId: number) => {
         router.post(
             route("role.pads.toggle-favorite", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 pad: padId,
             }),
             {},
             {
                 preserveScroll: true,
+                replace: true,
 
-                onSuccess: () => {
-                    toast.success(
-                        isGu
-                            ? "મનપસંદમાંથી દૂર કર્યું"
-                            : "Removed from favorites",
-                    );
-                },
+                // onSuccess: () => {
+                //     // toast.success(tr("removed_from_favorites"));
+                // },
             },
         );
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Clear filters
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // Clear Filters
+    // ─────────────────────────────────────────────────────────────────────
 
     const clearFilters = () => {
         setSearch("");
@@ -291,7 +332,7 @@ const Favorites = ({
 
         router.get(
             route("role.pads.favorites", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
             {},
             {
@@ -302,40 +343,39 @@ const Favorites = ({
         );
     };
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Page Title
+    // ─────────────────────────────────────────────────────────────────────
+
+    const pageTitle = tr("favorite_pads");
+
     return (
         <React.Fragment>
-            <Head title={isGu ? "મનપસંદ પદો" : "Favorite Pads"} />
+            <Head title={pageTitle} />
 
             <div className="page-content">
                 <Container fluid>
-                    <BreadCrumb
-                        title={isGu ? "મનપસંદ પદો" : "Favorite Pads"}
-                        pageTitle={isGu ? "પદો" : "Pads"}
-                    />
+                    <BreadCrumb title={pageTitle} pageTitle={tr("pads")} />
 
-                    {/* =========================================================
-                        Header
-                    ========================================================= */}
-
+                    {/* Header */}
                     <Card>
                         <Card.Header>
                             <Row className="align-items-center g-3">
                                 <Col lg={4}>
                                     <h5 className="card-title mb-1">
-                                        {isGu
-                                            ? "મારા મનપસંદ પદો"
-                                            : "My Favorite Pads"}
+                                        {tr("my_favorite_pads")}
                                     </h5>
 
                                     <p className="text-muted mb-0 small">
-                                        {isGu
-                                            ? `કુલ ${totalFavorites} પદ`
-                                            : `Total ${totalFavorites} pads`}
+                                        {tr("total_pads")}:{" "}
+                                        {gujaratiNumber(
+                                            totalFavorites,
+                                            currentLocale,
+                                        )}
                                     </p>
                                 </Col>
 
                                 {/* Search */}
-
                                 <Col lg={8}>
                                     <div className="d-flex justify-content-end">
                                         <div
@@ -359,11 +399,9 @@ const Favorites = ({
                                             <Form.Control
                                                 type="search"
                                                 className="ps-5"
-                                                placeholder={
-                                                    isGu
-                                                        ? "પદ, ગીત, શ્રેણી, મૂલ્ય, રેકોર્ડિંગ શોધો..."
-                                                        : "Search pad, lyrics, category, value, recording..."
-                                                }
+                                                placeholder={tr(
+                                                    "search_favorites_placeholder",
+                                                )}
                                                 value={search}
                                                 onChange={(e) =>
                                                     handleSearch(e.target.value)
@@ -375,19 +413,13 @@ const Favorites = ({
                             </Row>
                         </Card.Header>
 
-                        {/* =====================================================
-                            Filters
-                        ===================================================== */}
-
+                        {/* Filters */}
                         <Card.Body className="border-bottom">
                             <Row className="g-3 align-items-end">
                                 {/* Category Type */}
-
                                 <Col md={5} lg={5}>
                                     <Form.Label className="fw-semibold">
-                                        {isGu
-                                            ? "કેટેગરી પ્રકાર"
-                                            : "Category Type"}
+                                        {tr("category_type")}
                                     </Form.Label>
 
                                     <Form.Select
@@ -397,35 +429,44 @@ const Favorites = ({
                                         }
                                     >
                                         <option value="">
-                                            {isGu ? "બધા પ્રકાર" : "All Types"}
+                                            {tr("all_types")}
                                         </option>
 
-                                        {types.map((item: any) => (
-                                            <option
-                                                key={
-                                                    item.type_en || item.type_gu
-                                                }
-                                                value={
-                                                    item.type_en || item.type_gu
-                                                }
-                                            >
-                                                {isGu
-                                                    ? item.type_gu ||
-                                                      item.type_en
-                                                    : item.type_en ||
-                                                      item.type_gu}
-                                            </option>
-                                        ))}
+                                        {types.map((item: any) => {
+                                            const typeLabel =
+                                                tValue(
+                                                    item.type,
+                                                    currentLocale,
+                                                ) ||
+                                                tValue(
+                                                    {
+                                                        en: item.type_en,
+                                                        gu: item.type_gu,
+                                                    },
+                                                    currentLocale,
+                                                );
+
+                                            const typeValue =
+                                                item.type_en ||
+                                                item.type_gu ||
+                                                typeLabel;
+
+                                            return (
+                                                <option
+                                                    key={typeValue}
+                                                    value={typeValue}
+                                                >
+                                                    {typeLabel}
+                                                </option>
+                                            );
+                                        })}
                                     </Form.Select>
                                 </Col>
 
                                 {/* Category Value */}
-
                                 <Col md={5} lg={5}>
                                     <Form.Label className="fw-semibold">
-                                        {isGu
-                                            ? "કેટેગરી વેલ્યુ"
-                                            : "Category Value"}
+                                        {tr("category_value")}
                                     </Form.Label>
 
                                     <Form.Select
@@ -436,33 +477,42 @@ const Favorites = ({
                                         }
                                     >
                                         <option value="">
-                                            {isGu ? "બધા વેલ્યુ" : "All Values"}
+                                            {tr("all_values")}
                                         </option>
 
-                                        {values.map((item: any) => (
-                                            <option
-                                                key={
-                                                    item.value_en ||
-                                                    item.value_gu
-                                                }
-                                                value={
-                                                    item.value_en ||
-                                                    item.value_gu
-                                                }
-                                            >
-                                                {isGu
-                                                    ? item.value_gu ||
-                                                      item.value_en
-                                                    : item.value_en ||
-                                                      item.value_gu}
-                                            </option>
-                                        ))}
+                                        {values.map((item: any) => {
+                                            const valueLabel =
+                                                tValue(
+                                                    item.value,
+                                                    currentLocale,
+                                                ) ||
+                                                tValue(
+                                                    {
+                                                        en: item.value_en,
+                                                        gu: item.value_gu,
+                                                    },
+                                                    currentLocale,
+                                                );
+
+                                            const valueValue =
+                                                item.value_en ||
+                                                item.value_gu ||
+                                                valueLabel;
+
+                                            return (
+                                                <option
+                                                    key={valueValue}
+                                                    value={valueValue}
+                                                >
+                                                    {valueLabel}
+                                                </option>
+                                            );
+                                        })}
                                     </Form.Select>
                                 </Col>
 
                                 {/* Clear */}
-
-                                <Col md={2} lg={2}>
+                                <Col md={2} lg={1}>
                                     <button
                                         type="button"
                                         className="btn btn-soft-secondary w-100"
@@ -470,34 +520,29 @@ const Favorites = ({
                                     >
                                         <i className="ri-refresh-line me-1" />
 
-                                        {isGu ? "રીસેટ" : "Reset"}
+                                        {tr("reset")}
                                     </button>
                                 </Col>
                             </Row>
                         </Card.Body>
 
-                        {/* =====================================================
-                            Table
-                        ===================================================== */}
-
+                        {/* Table */}
                         <Card.Body className="p-0">
                             {pads.length === 0 ? (
                                 <div className="text-center py-5">
                                     <i className="ri-heart-line display-4 text-muted" />
 
                                     <p className="text-muted mt-3">
-                                        {isGu
-                                            ? "કોઈ મનપસંદ પદ મળ્યું નથી."
-                                            : "No favorite pads found."}
+                                        {tr("no_favorite_pads")}
                                     </p>
 
                                     <Link
                                         href={route("role.pads.list", {
-                                            rolePrefix: rolePrefix,
+                                            rolePrefix,
                                         })}
                                         className="btn btn-primary"
                                     >
-                                        {isGu ? "પદો જુઓ" : "Browse Pads"}
+                                        {tr("browse_pads")}
                                     </Link>
                                 </div>
                             ) : (
@@ -510,38 +555,25 @@ const Favorites = ({
                                     >
                                         <thead className="table-light">
                                             <tr>
-                                                <th style={{ width: 55 }}>#</th>
-
-                                                <th>
-                                                    {isGu ? "શીર્ષક" : "Title"}
+                                                <th
+                                                    style={{
+                                                        width: 55,
+                                                    }}
+                                                >
+                                                    {tr("id")}
                                                 </th>
 
-                                                <th>
-                                                    {isGu
-                                                        ? "શ્રેણીઓ"
-                                                        : "Categories"}
-                                                </th>
+                                                <th>{tr("title")}</th>
 
-                                                <th>
-                                                    {isGu ? "સ્થિતિ" : "Status"}
-                                                </th>
+                                                <th>{tr("categories")}</th>
 
-                                                <th>
-                                                    {isGu
-                                                        ? "સ્થાપના તારીખ"
-                                                        : "Establish Date"}
-                                                </th>
+                                                <th>{tr("status")}</th>
 
-                                                <th>
-                                                    {isGu
-                                                        ? "રેકોર્ડિંગ"
-                                                        : "Recording"}
-                                                </th>
+                                                <th>{tr("establish_date")}</th>
+
 
                                                 <th className="text-end">
-                                                    {isGu
-                                                        ? "ક્રિયા"
-                                                        : "Actions"}
+                                                    {tr("actions")}
                                                 </th>
                                             </tr>
                                         </thead>
@@ -550,31 +582,31 @@ const Favorites = ({
                                             {pads.map(
                                                 (pad: any, index: number) => {
                                                     const title =
-                                                        t(pad.title, locale) ||
-                                                        (isGu
-                                                            ? "શીર્ષક વગર"
-                                                            : "Untitled");
+                                                        tValue(
+                                                            pad.title,
+                                                            currentLocale,
+                                                        ) || tr("untitled");
 
                                                     const recording =
                                                         getRecording(pad);
 
                                                     return (
                                                         <tr key={pad.id}>
-                                                            {/* # */}
-
+                                                            {/* Number */}
                                                             <td className="text-muted">
-                                                                {index + 1}
+                                                                {gujaratiNumber(
+                                                                    index + 1,
+                                                                    currentLocale,
+                                                                )}
                                                             </td>
 
                                                             {/* Title */}
-
                                                             <td>
                                                                 <Link
                                                                     href={route(
                                                                         "role.pads.show",
                                                                         {
-                                                                            rolePrefix:
-                                                                                rolePrefix,
+                                                                            rolePrefix,
                                                                             pad: pad.id,
                                                                         },
                                                                     )}
@@ -597,160 +629,124 @@ const Favorites = ({
                                                                                 "ellipsis",
                                                                         }}
                                                                     >
-                                                                        {t(
+                                                                        {tValue(
                                                                             pad.value,
-                                                                            locale,
+                                                                            currentLocale,
                                                                         )}
                                                                     </div>
                                                                 )}
                                                             </td>
 
                                                             {/* Categories */}
-
                                                             <td>
                                                                 <div className="d-flex flex-wrap gap-1">
-                                                                    {Array.isArray(
-                                                                        pad.categories,
-                                                                    ) &&
-                                                                        pad.categories.map(
-                                                                            (
-                                                                                category: any,
-                                                                                categoryIndex: number,
-                                                                            ) => (
-                                                                                <span
-                                                                                    key={
-                                                                                        category.id ??
-                                                                                        categoryIndex
-                                                                                    }
-                                                                                    className="badge bg-info-subtle text-info"
-                                                                                    title={`${t(
-                                                                                        category.type,
-                                                                                        locale,
-                                                                                    )}: ${t(
-                                                                                        category.value,
-                                                                                        locale,
-                                                                                    )}`}
-                                                                                >
-                                                                                    <strong>
-                                                                                        {t(
-                                                                                            category.type,
-                                                                                            locale,
-                                                                                        )}
-                                                                                    </strong>
+                                                                    {(() => {
+                                                                        const categories = Array.isArray(pad.categories) ? pad.categories : [];
+                                                                        const visible = categories.slice(0, 3);
+                                                                        const hidden = categories.slice(3);
 
-                                                                                    {
-                                                                                        ": "
-                                                                                    }
-
-                                                                                    {t(
-                                                                                        category.value,
-                                                                                        locale,
-                                                                                    )}
-                                                                                </span>
-                                                                            ),
-                                                                        )}
+                                                                        return (
+                                                                            <>
+                                                                                {visible.map((category: any, categoryIndex: number) => {
+                                                                                    const categoryType = tValue(category.type, currentLocale);
+                                                                                    const categoryValue = tValue(category.value, currentLocale);
+                                                                                    return (
+                                                                                        <span key={category.id ?? categoryIndex} className="badge bg-info-subtle text-info">
+                                                                                            <strong>{categoryType}</strong>{": "}{categoryValue}
+                                                                                        </span>
+                                                                                    );
+                                                                                })}
+                                                                                {hidden.length > 0 && (
+                                                                                    <OverlayTrigger
+                                                                                        placement="top"
+                                                                                        overlay={
+                                                                                            <Tooltip id={`tooltip-cat-${pad.id}`}>
+                                                                                                <div className="d-flex flex-column text-start gap-1">
+                                                                                                    {hidden.map((c: any, i: number) => (
+                                                                                                        <div key={c.id ?? i}>
+                                                                                                            <strong>{tValue(c.type, currentLocale)}:</strong>{" "}
+                                                                                                            {tValue(c.value, currentLocale)}
+                                                                                                        </div>
+                                                                                                    ))}
+                                                                                                </div>
+                                                                                            </Tooltip>
+                                                                                        }
+                                                                                    >
+                                                                                        <span className="badge bg-secondary-subtle text-secondary" style={{ cursor: "pointer" }}>
+                                                                                            +{gujaratiNumber(hidden.length, currentLocale)}
+                                                                                        </span>
+                                                                                    </OverlayTrigger>
+                                                                                )}
+                                                                            </>
+                                                                        );
+                                                                    })()}
                                                                 </div>
                                                             </td>
 
                                                             {/* Status */}
-
                                                             <td>
                                                                 <StatusBadge
                                                                     status={
                                                                         pad.status
                                                                     }
-                                                                    isGu={isGu}
+                                                                    t={tr}
                                                                 />
                                                             </td>
 
                                                             {/* Date */}
-
                                                             <td>
                                                                 {formatDate(
                                                                     pad.establish_date,
+                                                                    currentLocale,
                                                                 )}
                                                             </td>
 
-                                                            {/* Recording */}
 
-                                                            <td>
-                                                                {recording ? (
-                                                                    <Badge
-                                                                        bg="success-subtle"
-                                                                        text="success"
-                                                                    >
-                                                                        {recording.media_type ===
-                                                                        "video"
-                                                                            ? isGu
-                                                                                ? "વિડિયો"
-                                                                                : "Video"
-                                                                            : isGu
-                                                                              ? "ઑડિયો"
-                                                                              : "Audio"}
-                                                                    </Badge>
-                                                                ) : (
-                                                                    <span className="text-muted">
-                                                                        —
-                                                                    </span>
-                                                                )}
-                                                            </td>
 
                                                             {/* Actions */}
-
                                                             <td className="text-end">
                                                                 <div className="d-flex gap-1 justify-content-end">
                                                                     {/* View */}
-
                                                                     <Link
                                                                         href={route(
                                                                             "role.pads.show",
                                                                             {
-                                                                                rolePrefix:
-                                                                                    rolePrefix,
+                                                                                rolePrefix,
                                                                                 pad: pad.id,
                                                                             },
                                                                         )}
                                                                         className="btn btn-soft-info btn-sm"
-                                                                        title={
-                                                                            isGu
-                                                                                ? "જુઓ"
-                                                                                : "View"
-                                                                        }
+                                                                        title={tr(
+                                                                            "view",
+                                                                        )}
                                                                     >
                                                                         <i className="ri-eye-fill" />
                                                                     </Link>
 
                                                                     {/* Edit */}
-
                                                                     <Link
                                                                         href={route(
                                                                             "role.pads.edit",
                                                                             {
-                                                                                rolePrefix:
-                                                                                    rolePrefix,
+                                                                                rolePrefix,
                                                                                 pad: pad.id,
                                                                             },
                                                                         )}
                                                                         className="btn btn-soft-warning btn-sm"
-                                                                        title={
-                                                                            isGu
-                                                                                   ? "ફેરફાર"
-                                                                                : "Edit"
-                                                                        }
+                                                                        title={tr(
+                                                                            "edit",
+                                                                        )}
                                                                     >
                                                                         <i className="ri-pencil-fill" />
                                                                     </Link>
 
                                                                     {/* Remove Favorite */}
-
                                                                     <button
                                                                         type="button"
                                                                         className="btn btn-soft-danger btn-sm"
-                                                                        title={
-                                                                            isGu
-                                                                                ? "મનપસંદમાંથી દૂર કરો"
-                                                                                : "Remove from favorites"
-                                                                        }
+                                                                        title={tr(
+                                                                            "remove_from_favorites",
+                                                                        )}
                                                                         onClick={() =>
                                                                             handleRemove(
                                                                                 pad.id,
@@ -772,7 +768,7 @@ const Favorites = ({
                         </Card.Body>
                     </Card>
 
-                    <ToastContainer closeButton={false} limit={1} />
+                    {/* <ToastContainer closeButton={false} limit={1} /> */}
                 </Container>
             </div>
         </React.Fragment>

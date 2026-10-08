@@ -42,15 +42,15 @@ class AuthenticatedSessionController extends Controller
             : 'admin';
 
         if ($user->can('dashboard.view')) {
-            return redirect()->route('role.dashboard.index', [
-                'rolePrefix' => $rolePrefix,
-            ]);
+            return redirect()
+                ->route('role.dashboard.index', ['rolePrefix' => $rolePrefix])
+                ->with('success', 'login_success');
         }
 
         // return redirect()->intended(RouteServiceProvider::HOME);
-        return redirect()->route('role.pads.list', [
-            'rolePrefix' => $rolePrefix,
-        ]);
+        return redirect()
+            ->route('role.pads.list', ['rolePrefix' => $rolePrefix])
+            ->with('success', 'login_success');
     }
 
 
@@ -83,6 +83,6 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerateToken();
 
-        return redirect('/login');
+        return redirect('/login')->with('success', 'logout_success');
     }
 }

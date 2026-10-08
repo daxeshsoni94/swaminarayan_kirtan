@@ -33,6 +33,7 @@ class SetLocale
         // $locale = session('locale', 'gu');
         $locale = session('locale', config('app.locale')); // defaults to 'gu'
         app()->setLocale($locale);
+        app('translator')->addJsonPath(lang_path($locale));
 
         return $next($request);
     }

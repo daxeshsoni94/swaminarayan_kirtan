@@ -1,60 +1,68 @@
-import React, { useRef, useState } from "react";
-import { useForm, usePage } from "@inertiajs/react";
-import { Button, Card, Col, Form, Modal, Row } from "react-bootstrap";
+import React, { useMemo, useRef, useState } from "react";
 
-export default function DeleteUserForm({ className = "" }: any) {
+import { useForm, usePage } from "@inertiajs/react";
+
+import {
+    Button,
+    Card,
+    Col,
+    Form,
+    Modal,
+    Row,
+} from "react-bootstrap";
+
+interface PageProps {
+    locale?: string;
+    translations?: Record<string, any>;
+}
+
+interface DeleteUserFormProps {
+    className?: string;
+}
+
+type TranslationFunction = (
+    key: string,
+    replacements?: Record<string, string | number>,
+) => string;
+
+const createTranslator = (
+    translations: Record<string, any>,
+): TranslationFunction => {
+    return (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ): string => {
+        let text = translations[key] ?? key;
+
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = String(text).replace(
+                new RegExp(`:${name}`, "g"),
+                String(value),
+            );
+        });
+
+        return text;
+    };
+};
+
+export default function DeleteUserForm({
+    className = "",
+}: DeleteUserFormProps) {
     const [confirmingUserDeletion, setConfirmingUserDeletion] =
         useState<boolean>(false);
 
-    const passwordInput = useRef<HTMLInputElement>(null);
+    const passwordInput =
+        useRef<HTMLInputElement>(null);
 
-    const { locale } = usePage().props as any;
+    const { locale, translations = {} } =
+        usePage<PageProps>().props;
 
-    /*
-    |--------------------------------------------------------------------------
-    | Translations
-    |--------------------------------------------------------------------------
-    */
+    const currentLocale = locale || "gu";
 
-    const labels = {
-        en: {
-            deleteAccount: "Delete Account",
-            description:
-                "Once your account is deleted, all of its resources and data will be permanently deleted. Before deleting your account, please download any data or information that you wish to retain.",
-            confirmationTitle:
-                "Are you sure you want to delete your account?",
-            confirmationDescription:
-                "Once your account is deleted, all of its resources and data will be permanently deleted. Please enter your password to confirm you would like to permanently delete your account.",
-            password: "Password",
-            passwordPlaceholder: "Enter your password",
-            cancel: "Cancel",
-            deleting: "Deleting...",
-            delete: "Delete Account",
-        },
-
-        gu: {
-            deleteAccount: "એકાઉન્ટ ડિલીટ કરો",
-            description:
-                "એકવાર તમારું એકાઉન્ટ ડિલીટ થઈ જાય પછી, તેના તમામ સંસાધનો અને ડેટા કાયમી ધોરણે ડિલીટ થઈ જશે. એકાઉન્ટ ડિલીટ કરતા પહેલાં, જે ડેટા અથવા માહિતી સાચવવી હોય તેનો બેકઅપ લઈ લો.",
-            confirmationTitle:
-                "શું તમે ખરેખર તમારું એકાઉન્ટ ડિલીટ કરવા માંગો છો?",
-            confirmationDescription:
-                "એકવાર તમારું એકાઉન્ટ ડિલીટ થઈ જાય પછી, તેના તમામ સંસાધનો અને ડેટા કાયમી ધોરણે ડિલીટ થઈ જશે. તમારું એકાઉન્ટ કાયમી ધોરણે ડિલીટ કરવાની પુષ્ટિ કરવા માટે તમારો પાસવર્ડ દાખલ કરો.",
-            password: "પાસવર્ડ",
-            passwordPlaceholder: "તમારો પાસવર્ડ દાખલ કરો",
-            cancel: "રદ કરો",
-            deleting: "ડિલીટ કરી રહ્યા છીએ...",
-            delete: "એકાઉન્ટ ડિલીટ કરો",
-        },
-    };
-
-    const t = labels[locale === "gu" ? "gu" : "en"];
-
-    /*
-    |--------------------------------------------------------------------------
-    | Form
-    |--------------------------------------------------------------------------
-    */
+    const tr = useMemo(
+        () => createTranslator(translations),
+        [translations],
+    );
 
     const {
         data,
@@ -67,12 +75,9 @@ export default function DeleteUserForm({ className = "" }: any) {
         password: "",
     });
 
-    /*
-    |--------------------------------------------------------------------------
-    | Open Confirmation Modal
-    |--------------------------------------------------------------------------
-    */
-
+    /**
+     * Open confirmation modal
+     */
     const confirmUserDeletion = () => {
         setConfirmingUserDeletion(true);
 
@@ -81,13 +86,12 @@ export default function DeleteUserForm({ className = "" }: any) {
         }, 100);
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | Delete Account
-    |--------------------------------------------------------------------------
-    */
-
-    const deleteUser = (e: React.FormEvent) => {
+    /**
+     * Delete account
+     */
+    const deleteUser = (
+        e: React.FormEvent<HTMLFormElement>,
+    ) => {
         e.preventDefault();
 
         destroy(route("profile.destroy"), {
@@ -107,12 +111,9 @@ export default function DeleteUserForm({ className = "" }: any) {
         });
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | Close Modal
-    |--------------------------------------------------------------------------
-    */
-
+    /**
+     * Close confirmation modal
+     */
     const closeModal = () => {
         setConfirmingUserDeletion(false);
         reset();
@@ -120,27 +121,24 @@ export default function DeleteUserForm({ className = "" }: any) {
 
     return (
         <React.Fragment>
-            <Row>
+            <Row className={className}>
                 <Col lg={12}>
-                    {/* Title */}
                     <h4 className="mb-3">
-                        {t.deleteAccount}
+                        {tr("delete_account")}
                     </h4>
 
                     <Card>
                         <Card.Body>
-                            {/* Description */}
                             <p className="text-muted mb-3">
-                                {t.description}
+                                {tr("delete_account_description")}
                             </p>
 
-                            {/* Delete Button */}
                             <Button
                                 variant="danger"
                                 onClick={confirmUserDeletion}
                                 type="button"
                             >
-                                {t.deleteAccount}
+                                {tr("delete_account")}
                             </Button>
                         </Card.Body>
                     </Card>
@@ -158,18 +156,22 @@ export default function DeleteUserForm({ className = "" }: any) {
                     closeButton
                 >
                     <Modal.Title className="fs-5">
-                        {t.confirmationTitle}
+                        {tr(
+                            "delete_account_confirmation_title",
+                        )}
                     </Modal.Title>
                 </Modal.Header>
 
                 <Form onSubmit={deleteUser}>
                     <Modal.Body>
                         <p className="text-muted">
-                            {t.confirmationDescription}
+                            {tr(
+                                "delete_account_confirmation_description",
+                            )}
                         </p>
 
                         <Form.Label htmlFor="password">
-                            {t.password}
+                            {tr("password")}
                         </Form.Label>
 
                         <Form.Control
@@ -181,11 +183,13 @@ export default function DeleteUserForm({ className = "" }: any) {
                             onChange={(e) =>
                                 setData(
                                     "password",
-                                    e.target.value
+                                    e.target.value,
                                 )
                             }
                             autoComplete="current-password"
-                            placeholder={t.passwordPlaceholder}
+                            placeholder={tr(
+                                "password_placeholder",
+                            )}
                             autoFocus
                             isInvalid={!!errors.password}
                         />
@@ -201,17 +205,15 @@ export default function DeleteUserForm({ className = "" }: any) {
                     </Modal.Body>
 
                     <Modal.Footer>
-                        {/* Cancel */}
                         <Button
                             variant="light"
                             onClick={closeModal}
                             type="button"
                             disabled={processing}
                         >
-                            {t.cancel}
+                            {tr("cancel")}
                         </Button>
 
-                        {/* Delete */}
                         <Button
                             variant="danger"
                             disabled={processing}
@@ -224,10 +226,10 @@ export default function DeleteUserForm({ className = "" }: any) {
                                         role="status"
                                     />
 
-                                    {t.deleting}
+                                    {tr("deleting")}
                                 </>
                             ) : (
-                                t.delete
+                                tr("delete_account")
                             )}
                         </Button>
                     </Modal.Footer>

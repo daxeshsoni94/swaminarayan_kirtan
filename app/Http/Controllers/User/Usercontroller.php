@@ -12,6 +12,38 @@ use Inertia\Inertia;
 
 class Usercontroller extends Controller
 {
+    /**
+     * Get all language codes from the database.
+     */
+    private function supportedLocales(): array
+    {
+        $codes = Language::query()
+            ->pluck('code')
+            ->filter()
+            ->map(fn($code) => strtolower(trim($code)))
+            ->unique()
+            ->values()
+            ->all();
+
+        return !empty($codes) ? $codes : ['en'];
+    }
+
+    /**
+     * Resolve current locale safely.
+     */
+    private function resolveLocale(?string $locale = null): string
+    {
+        $locale = $locale
+            ? strtolower(trim($locale))
+            : strtolower((string) session('locale', app()->getLocale()));
+
+        $locales = $this->supportedLocales();
+
+        return in_array($locale, $locales, true)
+            ? $locale
+            : ($locales[0] ?? 'en');
+    }
+
     public function index(Request $request)
     {
         return $this->list($request);
@@ -21,8 +53,12 @@ class Usercontroller extends Controller
     {
         return Inertia::render('Admin/Users/UserForm', [
             'user' => null,
-            'roles' => Role::select('id', 'name')->get(),
-            'languages' => Language::select('id', 'name')->get(),
+            'roles' => Role::query()->select('id', 'name')->get(),
+            'languages' => Language::query()
+                ->select('id', 'code', 'name')
+                ->orderBy('id')
+                ->get(),
+            'locale' => $this->resolveLocale(),
         ]);
     }
 
@@ -30,74 +66,38 @@ class Usercontroller extends Controller
     {
         return Inertia::render('Admin/Users/UserForm', [
             'user' => $user,
-            'roles' => Role::select('id', 'name')->get(),
-            'languages' => Language::select('id', 'name')->get(),
+            'roles' => Role::query()->select('id', 'name')->get(),
+            'languages' => Language::query()
+                ->select('id', 'code', 'name')
+                ->orderBy('id')
+                ->get(),
+            'locale' => $this->resolveLocale(),
         ]);
     }
-    // public function list(Request $request)
-    // {
-    //     $query = User::with('role');
-
-    //     if ($search = $request->input('search')) {
-    //         $query->where(function ($q) use ($search) {
-    //             $q->where('name', 'like', "%{$search}%")
-    //                 ->orWhere('email', 'like', "%{$search}%");
-    //         });
-    //     }
-
-    //     $users = $query->latest()->paginate(10)->withQueryString();
-
-    //     return Inertia::render('Admin/Users/UserList', [
-    //         'users' => $users,
-    //         'roles' => Role::select('id', 'name')->get(),
-    //         'languages' => Language::select('id', 'name')->get(),
-    //         'filters' => $request->only(['search']),
-    //     ]);
-    // }
 
     public function list(Request $request)
     {
-        $locale = app()->getLocale();
+        $locales = $this->supportedLocales();
+        $locale = $this->resolveLocale();
+        $search = trim((string) $request->input('search', ''));
 
-        if (! in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
-        }
-
-        $search = trim($request->input('search', ''));
-
-        $query = User::query()
-            ->with('role');
+        $query = User::query()->with('role');
 
         if ($search !== '') {
             $searchLike = '%' . $search . '%';
 
-            $query->where(function ($q) use ($searchLike) {
+            $query->where(function ($q) use ($searchLike, $locales) {
+                foreach ($locales as $index => $language) {
+                    $method = $index === 0 ? 'whereRaw' : 'orWhereRaw';
 
-                // ─────────────────────────────────────────
-                // Name - search BOTH English and Gujarati
-                // ─────────────────────────────────────────
-                $q->whereRaw(
-                    "JSON_UNQUOTE(JSON_EXTRACT(name, '$.en')) LIKE ?",
-                    [$searchLike]
-                )
-                    ->orWhereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(name, '$.gu')) LIKE ?",
+                    $q->{$method}(
+                        "JSON_UNQUOTE(JSON_EXTRACT(name, '$.\"{$language}\"')) LIKE ?",
                         [$searchLike]
-                    )
+                    );
+                }
 
-                    // ─────────────────────────────────────────
-                    // Email
-                    // ─────────────────────────────────────────
-                    ->orWhere('email', 'like', $searchLike)
-
-                    // ─────────────────────────────────────────
-                    // Phone / Mobile
-                    // ─────────────────────────────────────────
+                $q->orWhere('email', 'like', $searchLike)
                     ->orWhere('phone', 'like', $searchLike)
-
-                    // ─────────────────────────────────────────
-                    // Role name
-                    // ─────────────────────────────────────────
                     ->orWhereHas('role', function ($roleQuery) use ($searchLike) {
                         $roleQuery->where('name', 'like', $searchLike);
                     });
@@ -111,70 +111,105 @@ class Usercontroller extends Controller
 
         return Inertia::render('Admin/Users/UserList', [
             'users' => $users,
-
-            'roles' => Role::select('id', 'name')->get(),
-
-            'languages' => Language::select('id', 'name')->get(),
-
+            'roles' => Role::query()->select('id', 'name')->get(),
+            'languages' => Language::query()
+                ->select('id', 'code', 'name')
+                ->orderBy('id')
+                ->get(),
             'filters' => [
                 'search' => $search,
             ],
-
             'locale' => $locale,
         ]);
     }
 
     public function store($rolePrefix, Request $request)
     {
+        $locales = $this->supportedLocales();
+        $currentLocale = $this->resolveLocale($request->input('locale'));
 
-        // dd($request->all());
-        $locale = app()->getLocale();
+        $rules = [
+            'name' => ['required', 'array'],
+            'email' => ['required', 'email', 'unique:users,email'],
+            'phone' => ['nullable', 'string', 'max:20'],
+            'role_id' => ['required', 'exists:roles,id'],
+            'language_id' => ['required', 'exists:languages,id'],
+            'status' => ['required'],
+            'password' => ['required', 'string', 'min:6'],
+            'locale' => ['nullable', 'string'],
+        ];
 
-        if (!in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
+        // Current language required
+        $rules["name.{$currentLocale}"] = ['required', 'string', 'max:255'];
+
+        // Other languages optional
+        foreach ($locales as $code) {
+            if ($code === $currentLocale) {
+                continue;
+            }
+            $rules["name.{$code}"] = ['nullable', 'string', 'max:255'];
         }
-        $data = $request->validate([
-            'name' => 'required|max:255',
-            'email' => 'required|email|unique:users,email',
-            'phone' => 'nullable|string|max:20',
-            'role_id' => 'required|exists:roles,id',
-            'language_id' => 'required|exists:languages,id',
-            'status' => 'required',
-            'password' => 'required|string|min:6',
-        ]);
 
+        $data = $request->validate($rules);
+        // dd($data);
 
         $data['password'] = Hash::make($data['password']);
+
+        // Full name map for all locales
+        $name = [];
+        foreach ($locales as $code) {
+            $name[$code] = $data['name'][$code] ?? '';
+        }
+        $data['name'] = $name;
 
         User::create($data);
 
         return redirect()
-            ->route('role.users.index', [
-                'rolePrefix' => $rolePrefix,
-            ])
-            ->with('success', $locale === 'gu'
-                ? 'વપરાશકર્તા સફળતાપૂર્વક ઉમેરવામાં આવ્યો.'
-                : 'User created successfully.');
+            ->route('role.users.index', ['rolePrefix' => $rolePrefix])
+            ->with('success', 'user_created_success');
     }
 
     public function update($rolePrefix, Request $request, User $user)
     {
-        $data = $request->validate([
-            'name' => 'required|array',
-            'name.en' => 'nullable|string|max:255',
-            'name.gu' => 'required|string|max:255',
-            'email' => 'required|email|unique:users,email,' . $user->id,
-            'phone' => 'nullable|string|max:20',
-            'role_id' => 'required|exists:roles,id',
-            'language_id' => 'required|exists:languages,id',
-            'status'      => 'required|in:blocked,unblocked',
-            'password' => 'nullable|string|min:6',
-        ]);
-        $locale = app()->getLocale();
+        $locales = $this->supportedLocales();
+        $currentLocale = $this->resolveLocale($request->input('locale'));
 
-        if (!in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
+        $rules = [
+            'name' => ['required', 'array'],
+            'email' => [
+                'required',
+                'email',
+                'unique:users,email,' . $user->id,
+            ],
+            'phone' => ['nullable', 'string', 'max:20'],
+            'role_id' => ['required', 'exists:roles,id'],
+            'language_id' => ['required', 'exists:languages,id'],
+            'status' => ['required', 'in:blocked,unblocked'],
+            'password' => ['nullable', 'string', 'min:6'],
+            'locale' => ['nullable', 'string'],
+        ];
+
+        // Current language required
+        $rules["name.{$currentLocale}"] = ['required', 'string', 'max:255'];
+
+        // Other languages optional
+        foreach ($locales as $code) {
+            if ($code === $currentLocale) {
+                continue;
+            }
+            $rules["name.{$code}"] = ['nullable', 'string', 'max:255'];
         }
+
+        $data = $request->validate($rules);
+
+        // Merge with existing translations so other locales are not wiped
+        $existingName = is_array($user->name) ? $user->name : [];
+        $name = [];
+        foreach ($locales as $code) {
+            $name[$code] = $data['name'][$code]
+                ?? ($existingName[$code] ?? '');
+        }
+        $data['name'] = $name;
 
         if (!empty($data['password'])) {
             $data['password'] = Hash::make($data['password']);
@@ -182,56 +217,33 @@ class Usercontroller extends Controller
             unset($data['password']);
         }
 
+        unset($data['locale']);
+
         $user->update($data);
 
         return redirect()
-            ->route('role.users.index', [
-                'rolePrefix' => $rolePrefix,
-            ])
-            ->with('success', $locale === 'gu'
-                ? 'વપરાશકર્તા સફળતાપૂર્વક અપડેટ કરવામાં આવ્યો.'
-                : 'User updated successfully.');
+            ->route('role.users.index', ['rolePrefix' => $rolePrefix])
+            ->with('success', 'user_updated_success');
     }
 
     public function destroy($rolePrefix, User $user)
     {
-        $locale = app()->getLocale();
-
-        if (!in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
-        }
         $user->delete();
+
         return redirect()
-            ->route('role.users.index', [
-                'rolePrefix' => $rolePrefix,
-            ])
-            ->with('success', $locale === 'gu'
-                ? 'વપરાશકર્તા સફળતાપૂર્વક કાઢી નાખવામાં આવ્યો.'
-                : 'User deleted successfully.');
+            ->route('role.users.index', ['rolePrefix' => $rolePrefix])
+            ->with('success', 'user_deleted_success');
     }
 
     public function bulkDestroy($rolePrefix, Request $request)
     {
-        $locale = app()->getLocale();
-
-        if (!in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
-        }
         $request->validate([
             'ids' => ['required', 'array', 'min:1'],
             'ids.*' => ['integer', 'exists:users,id'],
         ]);
-        // $request->validate([
-        //     'ids'   => 'required|array',
-        //     'ids.*' => 'integer|exists:,id',  // adjust table
-        // ]);
-
 
         User::whereIn('id', $request->ids)->delete();
-        // dd($request->all());
 
-        return back()->with('success', $locale === 'gu'
-            ? 'વપરાશકર્તા સફળતાપૂર્વક કાઢી નાખવામાં આવ્યો.'
-            : 'User deleted successfully.');
+        return back()->with('success', 'users_deleted_success');
     }
 }

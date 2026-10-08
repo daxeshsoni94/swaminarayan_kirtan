@@ -1,86 +1,127 @@
 import React, { useEffect } from "react";
+
 import { Card, Col, Container, Form, Row } from "react-bootstrap";
+
 import BreadCrumb from "../../../../Components/Common/BreadCrumb";
+
 import { Head, Link, useForm, usePage } from "@inertiajs/react";
+
 import Layout from "../../../../Layouts";
-import { toast } from "react-toastify";
 
-const AdjectivesForm = ({ adjectives = null }) => {
-    const page = usePage().props;
+const AdjectivesForm = ({ adjectives = null }: any) => {
+    const page = usePage().props as any;
 
-    const locale = page.locale === "gu" ? "gu" : "en";
-    const isGu = locale === "gu";
+    const {
+        auth,
+        translations = {},
+        languages = [],
+        locale,
+    } = page;
+
+    const availableLanguages = languages || [];
+
+    // Dynamic current language
+    const currentLocale =
+        locale || availableLanguages?.[0]?.code || "en";
+
+    /**
+     * Central translation helper
+     */
+    const tr = (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ) => {
+        let text = translations?.[key] ?? key;
+
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(`:${name}`, String(value));
+        });
+
+        return text;
+    };
+
+    /**
+     * Translate validation error keys
+     */
+    const translateError = (error?: string) => {
+        if (!error) return "";
+
+        return tr(error);
+    };
+
     const isEdit = !!adjectives?.id;
 
-    const { auth } = usePage().props as any;
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
-    const { data, setData, post, put, processing, errors } = useForm({
-        value: {
-            en: adjectives?.value?.en ?? "",
-            gu: adjectives?.value?.gu ?? "",
+
+    /**
+     * Build multilingual value object
+     *
+     * Example:
+     * {
+     *     en: "Kind",
+     *     gu: "સૌમ્ય"
+     * }
+     */
+    const initialValue = availableLanguages.reduce(
+        (
+            values: Record<string, string>,
+            language: any,
+        ) => {
+            values[language.code] =
+                adjectives?.value?.[language.code] ?? "";
+
+            return values;
         },
-        locale,
+        {},
+    );
+
+    const {
+        data,
+        setData,
+        post,
+        put,
+        processing,
+        errors,
+    } = useForm({
+        value: initialValue,
+        locale: currentLocale,
     });
 
-    // Keep form locale in sync with header toggle
+    /**
+     * Keep form locale synchronized
+     * with the language switcher
+     */
     useEffect(() => {
-        setData("locale", locale);
-    }, [locale]);
+        setData("locale", currentLocale);
+    }, [currentLocale]);
 
-    const setValue = (text) => {
+    /**
+     * Update only the currently selected language
+     */
+    const setValue = (text: string) => {
         setData("value", {
             ...data.value,
-            [locale]: text,
+            [currentLocale]: text,
         });
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
         if (isEdit) {
             put(
                 route("role.adjectives.update", {
-                    rolePrefix: rolePrefix,
+                    rolePrefix,
                     adjective: adjectives.id,
                 }),
-                {
-                    onSuccess: () =>
-                        toast.success(
-                            isGu
-                                ? "વિશેષણ સફળતાપૂર્વક અપડેટ થઈ!"
-                                : "Adjective updated successfully!",
-                        ),
-
-                    onError: () =>
-                        toast.error(
-                            isGu
-                                ? "કૃપા કરીને ભૂલો સુધારો."
-                                : "Please fix the errors.",
-                        ),
-                },
             );
         } else {
             post(
                 route("role.category.adjectivestore", {
-                    rolePrefix: rolePrefix,
+                    rolePrefix,
                 }),
-                {
-                    onSuccess: () =>
-                        toast.success(
-                            isGu
-                                ? "વિશેષણ સફળતાપૂર્વક ઉમેરવામાં આવી!"
-                                : "Adjective added successfully!",
-                        ),
-
-                    onError: () =>
-                        toast.error(
-                            isGu
-                                ? "કૃપા કરીને ભૂલો સુધારો."
-                                : "Please fix the errors.",
-                        ),
-                },
             );
         }
     };
@@ -90,12 +131,8 @@ const AdjectivesForm = ({ adjectives = null }) => {
             <Head
                 title={
                     isEdit
-                        ? isGu
-                            ? "વિશેષણ સંપાદિત કરો"
-                            : "Edit Adjectives"
-                        : isGu
-                          ? "વિશેષણ ઉમેરો"
-                          : "Add Adjectives"
+                        ? tr("edit_adjective")
+                        : tr("new_adjective")
                 }
             />
 
@@ -104,30 +141,11 @@ const AdjectivesForm = ({ adjectives = null }) => {
                     <BreadCrumb
                         title={
                             isEdit
-                                ? isGu
-                                    ? "વિશેષણ સંપાદિત કરો"
-                                    : "Edit Adjective"
-                                : isGu
-                                  ? "વિશેષણ ઉમેરો"
-                                  : "Add Adjective"
+                                ? tr("edit_adjective")
+                                : tr("new_adjective")
                         }
-                        pageTitle={isGu ? "વિશેષણ" : "Adjective"}
+                        pageTitle={tr("adjective")}
                     />
-
-                    {/* Locale indicator */}
-                    {/* <div className="mb-3">
-                        <span className="badge bg-primary">
-                            {isGu
-                                ? "ફોર્મ: ગુજરાતી (GU)"
-                                : "Form: English (EN)"}
-                        </span>
-
-                        <small className="text-muted ms-2">
-                            {isGu
-                                ? "બીજી ભાષામાં ફેરફાર કરવા માટે હેડર ટૉગલ બદલો."
-                                : "Switch language from the header toggle to edit the other translation."}
-                        </small>
-                    </div> */}
 
                     <Row>
                         <Col lg={12}>
@@ -135,58 +153,37 @@ const AdjectivesForm = ({ adjectives = null }) => {
                                 <Card.Header>
                                     <h5 className="card-title mb-0">
                                         {isEdit
-                                            ? isGu
-                                                ? "વિશેષણ વિગતો"
-                                                : "Adjective Details"
-                                            : isGu
-                                              ? "નવું વિશેષણ"
-                                              : "New Adjective"}
-{/* 
-                                        {isEdit && (
-                                            <span
-                                                className="badge bg-secondary ms-2"
-                                                style={{
-                                                    fontSize: "10px",
-                                                }}
-                                            >
-                                                ID #{adjectives.id}
-                                            </span>
-                                        )} */}
+                                            ? tr("adjective_details")
+                                            : tr("new_adjective")}
                                     </h5>
                                 </Card.Header>
 
                                 <Card.Body>
                                     <Form onSubmit={handleSubmit}>
-                                        {/* Type is fixed */}
+                                        {/* Type */}
                                         <Form.Group className="mb-3">
                                             <Form.Label>
-                                                {isGu ? "પ્રકાર" : "Type"}
+                                                {tr("type")}
                                             </Form.Label>
 
                                             <Form.Control
                                                 type="text"
-                                                value={
-                                                    isGu
-                                                        ? "વિશેષણ"
-                                                        : "Adjective"
-                                                }
+                                                value={tr("adjective")}
                                                 disabled
                                                 readOnly
                                             />
 
                                             <Form.Text className="text-muted">
-                                                {isGu
-                                                    ? "પ્રકાર હંમેશા વિશેષણ રહેશે."
-                                                    : "Type is always set to adjective."}
+                                                {tr(
+                                                    "adjective_type_help",
+                                                )}
                                             </Form.Text>
                                         </Form.Group>
 
-                                        {/* Place value - current locale */}
+                                        {/* Adjective value */}
                                         <Form.Group className="mb-3">
                                             <Form.Label htmlFor="adjective-value">
-                                                {isGu
-                                                    ? "વિશેષણનું નામ"
-                                                    : "Adjective Name"}{" "}
+                                                {tr("adjective_name")}{" "}
                                                 <span className="text-danger">
                                                     *
                                                 </span>
@@ -195,35 +192,43 @@ const AdjectivesForm = ({ adjectives = null }) => {
                                             <Form.Control
                                                 type="text"
                                                 id="adjective-value"
-                                                placeholder={
-                                                    isGu
-                                                        ? "ઉદા. જાદુગર"
-                                                        : "e.g. Jadugara"
+                                                placeholder={tr(
+                                                    "adjective_placeholder",
+                                                )}
+                                                value={
+                                                    data.value?.[
+                                                        currentLocale
+                                                    ] ?? ""
                                                 }
-                                                value={data.value[locale] ?? ""}
                                                 onChange={(e) =>
-                                                    setValue(e.target.value)
+                                                    setValue(
+                                                        e.target.value,
+                                                    )
                                                 }
                                                 isInvalid={
-                                                    !!errors[
-                                                        `value.${locale}`
-                                                    ] || !!errors.value
+                                                    !!errors?.[
+                                                        `value.${currentLocale}`
+                                                    ] ||
+                                                    !!errors?.value
                                                 }
                                             />
 
                                             <Form.Control.Feedback type="invalid">
-                                                {errors[`value.${locale}`] ||
-                                                    errors.value}
+                                                {translateError(
+                                                    errors?.[
+                                                        `value.${currentLocale}`
+                                                    ] ||
+                                                        errors?.value,
+                                                )}
                                             </Form.Control.Feedback>
-
                                         </Form.Group>
 
-                                        {/* Both languages reference */}
+                                        {/* All languages reference */}
                                         <div className="mb-3 p-2 rounded border bg-light">
                                             <small className="text-muted d-block mb-1">
-                                                {isGu
-                                                    ? "બંને ભાષાઓ (સંદર્ભ)"
-                                                    : "Both languages (reference)"}
+                                                {tr(
+                                                    "both_languages_reference",
+                                                )}
                                             </small>
 
                                             <div
@@ -232,15 +237,23 @@ const AdjectivesForm = ({ adjectives = null }) => {
                                                     fontSize: "13px",
                                                 }}
                                             >
-                                                <span>
-                                                    <strong>EN:</strong>{" "}
-                                                    {data.value.en || "—"}
-                                                </span>
-
-                                                <span>
-                                                    <strong>GU:</strong>{" "}
-                                                    {data.value.gu || "—"}
-                                                </span>
+                                                {availableLanguages.map(
+                                                    (language: any) => (
+                                                        <span
+                                                            key={
+                                                                language.code
+                                                            }
+                                                        >
+                                                            <strong>
+                                                                {language.code.toUpperCase()}
+                                                                :
+                                                            </strong>{" "}
+                                                            {data.value?.[
+                                                                language.code
+                                                            ] || "—"}
+                                                        </span>
+                                                    ),
+                                                )}
                                             </div>
                                         </div>
 
@@ -250,12 +263,12 @@ const AdjectivesForm = ({ adjectives = null }) => {
                                                 href={route(
                                                     "role.category.adjectivelist",
                                                     {
-                                                        rolePrefix: rolePrefix,
+                                                        rolePrefix,
                                                     },
                                                 )}
                                                 className="btn btn-secondary me-2"
                                             >
-                                                {isGu ? "રદ કરો" : "Cancel"}
+                                                {tr("cancel")}
                                             </Link>
 
                                             <button
@@ -264,16 +277,10 @@ const AdjectivesForm = ({ adjectives = null }) => {
                                                 disabled={processing}
                                             >
                                                 {processing
-                                                    ? isGu
-                                                        ? "સાચવી રહ્યા છીએ..."
-                                                        : "Saving..."
+                                                    ? tr("saving")
                                                     : isEdit
-                                                      ? isGu
-                                                          ? "અપડેટ કરો"
-                                                          : "Update"
-                                                      : isGu
-                                                        ? "સાચવો"
-                                                        : "Save"}
+                                                      ? tr("update")
+                                                      : tr("save")}
                                             </button>
                                         </div>
                                     </Form>
@@ -287,6 +294,8 @@ const AdjectivesForm = ({ adjectives = null }) => {
     );
 };
 
-AdjectivesForm.layout = (page) => <Layout children={page} />;
+AdjectivesForm.layout = (page: any) => (
+    <Layout children={page} />
+);
 
 export default AdjectivesForm;

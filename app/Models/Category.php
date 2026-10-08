@@ -14,6 +14,7 @@ class Category extends Model
         'type',
         'value',
         'created_by',
+        'is_custom',
     ];
 
     public function creator()

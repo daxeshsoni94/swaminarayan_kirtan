@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
     Card,
     Col,
@@ -12,22 +12,56 @@ import {
 import BreadCrumb from "../../../../Components/Common/BreadCrumb";
 import { Head, Link, usePage, router } from "@inertiajs/react";
 import Layout from "../../../../Layouts";
-import Swal from "sweetalert2"; // remove if you use a different confirm/toast lib
+import Swal from "sweetalert2";
 import { toast } from "react-toastify";
+import { gujaratiNumber } from "../../../../utils/number";
 
-// ── Resolve translation object → string ───────────────────────────────────────
-const t = (v: any, locale = "en"): string => {
-    if (v == null) return "";
-    if (typeof v === "string") return v;
-    if (typeof v === "object") {
-        return v[locale] ?? v.en ?? v.gu ?? Object.values(v)[0] ?? "";
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+const tValue = (value: any, locale: string): string => {
+    if (value == null) return "";
+
+    if (typeof value === "string") {
+        return value;
     }
-    return String(v);
+
+    if (typeof value === "object") {
+        return value[locale] ?? Object.values(value)[0] ?? "";
+    }
+
+    return String(value);
 };
 
-// ─── Status Badge ─────────────────────────────────────────────────────────────
-const StatusBadge = ({ status, isGu }: { status?: string; isGu: boolean }) => {
+const createTranslator = (translations: Record<string, any>) => {
+    return (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ): string => {
+        let text = translations[key] ?? key;
+
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(`:${name}`, String(value));
+        });
+
+        return text;
+    };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Status Badge
+// ─────────────────────────────────────────────────────────────────────────────
+
+const StatusBadge = ({
+    status,
+    tr,
+}: {
+    status?: string;
+    tr: (key: string, replacements?: Record<string, string | number>) => string;
+}) => {
     const key = (status || "").toLowerCase();
+
     const map: Record<string, string> = {
         save: "badge bg-success-subtle text-success text-uppercase",
         published: "badge bg-success-subtle text-success text-uppercase",
@@ -35,12 +69,19 @@ const StatusBadge = ({ status, isGu }: { status?: string; isGu: boolean }) => {
         draft: "badge bg-warning-subtle text-warning text-uppercase",
         inactive: "badge bg-danger-subtle text-danger text-uppercase",
     };
+
     let label = status || "—";
+
     if (key === "save" || key === "published") {
-        label = isGu ? "પ્રકાશિત" : "Published";
+        label = tr("published");
     } else if (key === "draft") {
-        label = isGu ? "ડ્રાફ્ટ" : "Draft";
+        label = tr("draft");
+    } else if (key === "active") {
+        label = tr("active");
+    } else if (key === "inactive") {
+        label = tr("inactive");
     }
+
     return (
         <span
             className={
@@ -53,62 +94,104 @@ const StatusBadge = ({ status, isGu }: { status?: string; isGu: boolean }) => {
     );
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-const formatDate = (value: any) => {
-    if (value === null || value === undefined || value === "") return "—";
+// ─────────────────────────────────────────────────────────────────────────────
+// Date formatter
+// ─────────────────────────────────────────────────────────────────────────────
+
+const formatDate = (value: any, locale: string): string => {
+    if (value === null || value === undefined || value === "") {
+        return "—";
+    }
+
     const str = String(value).trim();
-    const m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (!m) return str;
-    const months = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-    ];
-    const [, year, month, day] = m;
-    return `${day} ${months[Number(month) - 1]} ${year}`;
+
+    const match = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+    if (!match) {
+        return str;
+    }
+
+    const [, year, month, day] = match;
+
+    const date = new Date(Number(year), Number(month) - 1, Number(day));
+
+    if (Number.isNaN(date.getTime())) {
+        return str;
+    }
+
+    const parts = new Intl.DateTimeFormat(locale, {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+    }).formatToParts(date);
+
+    const dayPart = parts.find((part) => part.type === "day")?.value ?? "";
+    const monthPart = parts.find((part) => part.type === "month")?.value ?? "";
+    const yearPart = parts.find((part) => part.type === "year")?.value ?? "";
+
+    const formatted = `${dayPart} ${monthPart}, ${yearPart}`;
+
+    return gujaratiNumber(formatted, locale);
 };
 
-const storageUrl = (fileUrl: string | null | undefined) => {
-    if (!fileUrl) return null;
+// ─────────────────────────────────────────────────────────────────────────────
+// Storage URL
+// ─────────────────────────────────────────────────────────────────────────────
+
+const storageUrl = (fileUrl: string | null | undefined): string | null => {
+    if (!fileUrl) {
+        return null;
+    }
+
     if (fileUrl.startsWith("http") || fileUrl.startsWith("/storage/")) {
         return fileUrl;
     }
+
     return `/storage/${String(fileUrl).replace(/^\//, "")}`;
 };
 
-// ─── Show (All Pads of a Swami) ───────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Event Show Pads
+// ─────────────────────────────────────────────────────────────────────────────
+
 const EventShowPads = ({ swami, pads = [] }: { swami: any; pads?: any[] }) => {
-    const page = usePage().props as { locale?: string };
-    const locale = (page.locale === "gu" ? "gu" : "en") as "en" | "gu";
-    const isGu = locale === "gu";
-    const { auth } = usePage().props as any;
-    const rolePrefix = auth?.user?.role?.name
-        ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
-        : "admin";
+    const page = usePage().props as any;
+
+    const { auth, translations = {}, locale } = page;
+
+    const currentLocale = locale || "gu";
+
+    const tr = useMemo(() => createTranslator(translations), [translations]);
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Dynamic role prefix
+    // ─────────────────────────────────────────────────────────────────────
+
+    const rolePrefix =
+        auth?.user?.role?.name?.toLowerCase().replace(/\s+/g, "-") || "admin";
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Event / Swami name
+    // ─────────────────────────────────────────────────────────────────────
 
     const swamiName =
-        t(swami?.name, locale) ||
-        t(swami?.title, locale) ||
-        (isGu ? "સ્વામી" : "Swami");
+        tValue(swami?.name, currentLocale) ||
+        tValue(swami?.title, currentLocale) ||
+        tr("swami");
 
-    // ── Selection state for mass delete ────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // Selection state
+    // ─────────────────────────────────────────────────────────────────────
+
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [deleting, setDeleting] = useState(false);
 
     const allSelected = pads.length > 0 && selectedIds.length === pads.length;
+
     const someSelected = selectedIds.length > 0 && !allSelected;
 
     const toggleAll = () => {
-        setSelectedIds(allSelected ? [] : pads.map((p) => p.id));
+        setSelectedIds(allSelected ? [] : pads.map((pad) => pad.id));
     };
 
     const toggleOne = (id: number) => {
@@ -117,101 +200,111 @@ const EventShowPads = ({ swami, pads = [] }: { swami: any; pads?: any[] }) => {
         );
     };
 
-    // ── Single delete ────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // Single delete
+    // ─────────────────────────────────────────────────────────────────────
+
     const handleDeleteOne = (id: number, title: string) => {
         Swal.fire({
-            title: isGu ? "શું તમે ખાતરી છો?" : "Are you sure?",
-            text: isGu
-                ? `"${title}" ડિલીટ કરવામાં આવશે.`
-                : `"${title}" will be permanently deleted.`,
+            title: tr("are_you_sure"),
+
+            text: tr("pad_delete_confirmation", {
+                title,
+            }),
+
             icon: "warning",
+
             showCancelButton: true,
-            confirmButtonText: isGu ? "હા, ડિલીટ કરો" : "Yes, delete it",
-            cancelButtonText: isGu ? "રદ કરો" : "Cancel",
-            confirmButtonColor: "#d33",
-        }).then((result) => {
-            if (!result.isConfirmed) return;
 
-            router.delete(route("admin.pads.creator.destroy", id), {
-                preserveScroll: true,
-                onSuccess: () => {
-                    setSelectedIds((prev) => prev.filter((x) => x !== id));
-                },
-            });
-        });
-    };
+            confirmButtonText: tr("yes_delete"),
 
-    // ── Mass delete ───────────────────────────────────────────────────────
-    const handleMassDelete = () => {
-        const ids = [...selectedIds];
+            cancelButtonText: tr("cancel"),
 
-        console.log("Mass delete IDs:", ids);
-
-        if (ids.length === 0) {
-            toast.warning(
-                isGu
-                    ? "કૃપા કરીને ઓછામાં ઓછું એક પદ પસંદ કરો."
-                    : "Please select at least one pad.",
-            );
-            return;
-        }
-
-        Swal.fire({
-            title: isGu ? "શું તમે ખાતરી છો?" : "Are you sure?",
-            text: isGu
-                ? `પસંદ કરેલા ${ids.length} પદ ડિલીટ કરવામાં આવશે.`
-                : `${ids.length} selected pad(s) will be permanently deleted.`,
-            icon: "warning",
-            showCancelButton: true,
-            confirmButtonText: isGu ? "હા, ડિલીટ કરો" : "Yes, delete them",
-            cancelButtonText: isGu ? "રદ કરો" : "Cancel",
             confirmButtonColor: "#d33",
         }).then((result) => {
             if (!result.isConfirmed) {
                 return;
             }
 
-            console.log("Sending IDs:", ids);
+            router.delete(
+                route("role.pads.destroy", {
+                    rolePrefix,
+                    pad: id,
+                }),
+                {
+                    preserveScroll: true,
+
+                    onSuccess: () => {
+                        setSelectedIds((prev) => prev.filter((x) => x !== id));
+
+                        // toast.success(tr("pad_deleted_success"));
+                    },
+
+                    onError: () => {
+                        // toast.error(tr("pad_delete_failed"));
+                    },
+                },
+            );
+        });
+    };
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Mass delete
+    // ─────────────────────────────────────────────────────────────────────
+
+    const handleMassDelete = () => {
+        const ids = [...selectedIds];
+
+        if (ids.length === 0) {
+            // toast.warning(tr("select_at_least_one_pad"));
+            return;
+        }
+
+        Swal.fire({
+            title: tr("are_you_sure"),
+
+            text: tr("pads_delete_confirmation", {
+                count: ids.length,
+            }),
+
+            icon: "warning",
+
+            showCancelButton: true,
+
+            confirmButtonText: tr("yes_delete_them"),
+
+            cancelButtonText: tr("cancel"),
+
+            confirmButtonColor: "#d33",
+        }).then((result) => {
+            if (!result.isConfirmed) {
+                return;
+            }
 
             setDeleting(true);
 
             router.post(
-                route("admin.pads.creator.massdestroy"),
+                route("role.pads.bulk-destroy", {
+                    rolePrefix,
+                }),
                 {
-                    ids: ids,
+                    ids,
                     _method: "DELETE",
                 },
                 {
                     preserveScroll: true,
 
-                    onStart: () => {
-                        console.log("Mass delete request started");
-                    },
-
                     onSuccess: () => {
-                        console.log("Mass delete successful");
-
                         setSelectedIds([]);
 
-                        toast.success(
-                            isGu
-                                ? "પદ સફળતાપૂર્વક ડિલીટ થયા."
-                                : "Pads deleted successfully.",
-                        );
+                        // toast.success(tr("pads_deleted_success"));
                     },
 
-                    onError: (errors) => {
-                        console.error("Mass delete errors:", errors);
-
-                        toast.error(
-                            isGu
-                                ? "પદ ડિલીટ કરવામાં નિષ્ફળતા."
-                                : "Failed to delete pads.",
-                        );
+                    onError: () => {
+                        // toast.error(tr("pads_delete_failed"));
                     },
 
                     onFinish: () => {
-                        console.log("Mass delete finished");
                         setDeleting(false);
                     },
                 },
@@ -219,72 +312,74 @@ const EventShowPads = ({ swami, pads = [] }: { swami: any; pads?: any[] }) => {
         });
     };
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Dynamic title
+    // ─────────────────────────────────────────────────────────────────────
+
+    const pageTitle = tr("event_pads_title", {
+        event: swamiName,
+    });
+
     return (
         <React.Fragment>
-            <Head
-                title={isGu ? `${swamiName} ના પદ` : `Pads of ${swamiName}`}
-            />
+            <Head title={pageTitle} />
+
             <div className="page-content">
                 <Container fluid>
-                    <BreadCrumb
-                        title={
-                            isGu ? `${swamiName} ના પદ` : `Pads of ${swamiName}`
-                        }
-                        pageTitle={isGu ? "પદ" : "Pads"}
-                    />
-
-                    {/* Locale indicator */}
-                    {/* <div className="mb-3">
-                        <span className="badge bg-primary">
-                            Viewing in: {isGu ? "ગુજરાતી (GU)" : "English (EN)"}
-                        </span>
-                        <small className="text-muted ms-2">
-                            {isGu
-                                ? "બીજી ભાષાનું અનુવાદ ઉમેરવા માટે હેડર ટૉગલમાંથી ભાષા બદલો."
-                                : "Switch language from the header toggle to fill the other translation."}
-                        </small>
-                    </div> */}
+                    <BreadCrumb title={pageTitle} pageTitle={tr("event")} />
 
                     <Row>
                         <Col lg={12}>
+                            {/* ─────────────────────────────────────────── */}
                             {/* Header */}
+                            {/* ─────────────────────────────────────────── */}
+
                             <Card>
                                 <Card.Header className="d-flex justify-content-between align-items-center">
                                     <div>
                                         <h5 className="card-title mb-1">
-                                            {isGu
-                                                ? `${swamiName} ના પદ`
-                                                : `Pads of ${swamiName}`}
+                                            {pageTitle}
                                         </h5>
+
                                         <p className="text-muted mb-0 small">
-                                            {isGu
-                                                ? `કુલ પદ: ${pads.length}`
-                                                : `Total Pads: ${pads.length}`}
+                                            {tr("total_pads")}:{" "}
+                                            {gujaratiNumber(
+                                                pads.length,
+                                                currentLocale,
+                                            )}
                                         </p>
                                     </div>
+
                                     <div className="d-flex gap-2">
                                         <Link
-                                            href={route("role.category.eventlist", {
-                                                rolePrefix: rolePrefix,
-                                            })}
+                                            href={route(
+                                                "role.category.eventlist",
+                                                {
+                                                    rolePrefix,
+                                                },
+                                            )}
                                             className="btn btn-secondary btn-sm"
                                         >
                                             <i className="ri-arrow-left-line me-1"></i>
-                                            {isGu ? "પાછળ જાઓ" : "Back"}
+
+                                            {tr("back")}
                                         </Link>
                                     </div>
                                 </Card.Header>
                             </Card>
 
+                            {/* ─────────────────────────────────────────── */}
                             {/* Pads List */}
+                            {/* ─────────────────────────────────────────── */}
+
                             <Card>
                                 <Card.Header className="d-flex justify-content-between align-items-center">
                                     <h6 className="mb-0 fw-semibold">
                                         <i className="ri-music-2-line me-1"></i>
-                                        {isGu ? "પદની યાદી" : "Pads List"}
+
+                                        {tr("pads_list")}
                                     </h6>
 
-                                    {/* Mass delete button — only shows when rows are selected */}
                                     {selectedIds.length > 0 && (
                                         <Button
                                             variant="danger"
@@ -293,27 +388,28 @@ const EventShowPads = ({ swami, pads = [] }: { swami: any; pads?: any[] }) => {
                                             onClick={handleMassDelete}
                                         >
                                             <i className="ri-delete-bin-line me-1"></i>
-                                            {isGu
-                                                ? `પસંદ કરેલા ડિલીટ કરો (${selectedIds.length})`
-                                                : `Delete Selected (${selectedIds.length})`}
+                                            {tr("delete_selected")} (
+                                            {selectedIds.length})
                                         </Button>
                                     )}
                                 </Card.Header>
+
                                 <Card.Body className="p-0">
                                     {pads.length === 0 ? (
                                         <div className="text-center py-5 text-muted">
-                                            {isGu
-                                                ? "આ પ્રસંગ સાથે કોઈ પદ જોડાયેલ નથી."
-                                                : "No pads found for this Event"}
+                                            {tr("no_event_pads_found")}
                                         </div>
                                     ) : (
                                         <div className="table-responsive">
                                             <Table
                                                 className="table-hover align-middle mb-0"
-                                                style={{ fontSize: "13px" }}
+                                                style={{
+                                                    fontSize: "13px",
+                                                }}
                                             >
                                                 <thead className="table-light">
                                                     <tr>
+                                                        {/* Checkbox */}
                                                         <th
                                                             style={{
                                                                 width: "40px",
@@ -324,64 +420,63 @@ const EventShowPads = ({ swami, pads = [] }: { swami: any; pads?: any[] }) => {
                                                                 checked={
                                                                     allSelected
                                                                 }
-                                                                ref={(
-                                                                    el: any,
-                                                                ) => {
-                                                                    if (el)
+                                                                ref={(el) => {
+                                                                    if (el) {
                                                                         el.indeterminate =
                                                                             someSelected;
+                                                                    }
                                                                 }}
                                                                 onChange={
                                                                     toggleAll
                                                                 }
                                                             />
                                                         </th>
+
+                                                        {/* Number */}
                                                         <th
                                                             style={{
                                                                 width: "40px",
                                                             }}
                                                         >
-                                                            #
+                                                            {tr("id")}
                                                         </th>
+
+                                                        {/* Title */}
+                                                        <th>{tr("title")}</th>
+
+                                                        {/* Status */}
+                                                        <th>{tr("status")}</th>
+
+                                                        {/* Establish Date */}
                                                         <th>
-                                                            {isGu
-                                                                ? "શીર્ષક"
-                                                                : "Title"}
+                                                            {tr(
+                                                                "establish_date",
+                                                            )}
                                                         </th>
+
+                                                        {/* Recording */}
                                                         <th>
-                                                            {isGu
-                                                                ? "સ્થિતિ"
-                                                                : "Status"}
+                                                            {tr("recording")}
                                                         </th>
-                                                        <th>
-                                                            {isGu
-                                                                ? "સ્થાપના તારીખ"
-                                                                : "Establish Date"}
-                                                        </th>
-                                                        <th>
-                                                            {isGu
-                                                                ? "રેકોર્ડિંગ"
-                                                                : "Recording"}
-                                                        </th>
+
+                                                        {/* Actions */}
                                                         <th className="text-end">
-                                                            {isGu
-                                                                ? "ક્રિયા"
-                                                                : "Actions"}
+                                                            {tr("actions")}
                                                         </th>
                                                     </tr>
                                                 </thead>
+
                                                 <tbody>
                                                     {pads.map((pad, index) => {
                                                         const title =
-                                                            t(
+                                                            tValue(
                                                                 pad.title,
-                                                                locale,
-                                                            ) ||
-                                                            (isGu
-                                                                ? "શીર્ષક વગર"
-                                                                : "Untitled");
+                                                                currentLocale,
+                                                            ) || tr("untitled");
+
                                                         const recording =
                                                             pad.recorded_version;
+
                                                         const hasMedia =
                                                             !!storageUrl(
                                                                 recording?.file_url,
@@ -389,6 +484,7 @@ const EventShowPads = ({ swami, pads = [] }: { swami: any; pads?: any[] }) => {
 
                                                         return (
                                                             <tr key={pad.id}>
+                                                                {/* Checkbox */}
                                                                 <td>
                                                                     <Form.Check
                                                                         type="checkbox"
@@ -402,35 +498,46 @@ const EventShowPads = ({ swami, pads = [] }: { swami: any; pads?: any[] }) => {
                                                                         }
                                                                     />
                                                                 </td>
+
+                                                                {/* Number */}
                                                                 <td className="text-muted">
                                                                     {index + 1}
                                                                 </td>
+
+                                                                {/* Title */}
                                                                 <td>
                                                                     <Link
                                                                         href={route(
-                                                                            "admin.pads.show",
-                                                                            pad.id,
+                                                                            "role.pads.show",
+                                                                            {
+                                                                                rolePrefix,
+                                                                                pad: pad.id,
+                                                                            },
                                                                         )}
                                                                         className="fw-medium text-body"
                                                                     >
                                                                         {title}
                                                                     </Link>
                                                                 </td>
+
+                                                                {/* Status */}
                                                                 <td>
                                                                     <StatusBadge
                                                                         status={
                                                                             pad.status
                                                                         }
-                                                                        isGu={
-                                                                            isGu
-                                                                        }
+                                                                        tr={tr}
                                                                     />
                                                                 </td>
+
+                                                                {/* Date */}
                                                                 <td>
                                                                     {formatDate(
                                                                         pad.establish_date,
+                                                                        currentLocale,
                                                                     )}
                                                                 </td>
+                                                                {/* Recording */}
                                                                 <td>
                                                                     {hasMedia ? (
                                                                         <Badge
@@ -440,12 +547,12 @@ const EventShowPads = ({ swami, pads = [] }: { swami: any; pads?: any[] }) => {
                                                                         >
                                                                             {recording?.media_type ===
                                                                             "video"
-                                                                                ? isGu
-                                                                                    ? "વિડિયો"
-                                                                                    : "Video"
-                                                                                : isGu
-                                                                                  ? "ઑડિયો"
-                                                                                  : "Audio"}
+                                                                                ? tr(
+                                                                                      "video",
+                                                                                  )
+                                                                                : tr(
+                                                                                      "audio",
+                                                                                  )}
                                                                         </Badge>
                                                                     ) : (
                                                                         <span className="text-muted">
@@ -453,45 +560,51 @@ const EventShowPads = ({ swami, pads = [] }: { swami: any; pads?: any[] }) => {
                                                                         </span>
                                                                     )}
                                                                 </td>
+
+                                                                {/* Actions */}
                                                                 <td className="text-end">
                                                                     <div className="d-flex gap-1 justify-content-end">
+                                                                        {/* View */}
                                                                         <Link
                                                                             href={route(
-                                                                                "admin.pads.show",
-                                                                                pad.id,
+                                                                                "role.pads.show",
+                                                                                {
+                                                                                    rolePrefix,
+                                                                                    pad: pad.id,
+                                                                                },
                                                                             )}
                                                                             className="btn btn-soft-info btn-sm"
-                                                                            title={
-                                                                                isGu
-                                                                                    ? "જુઓ"
-                                                                                    : "View"
-                                                                            }
+                                                                            title={tr(
+                                                                                "view",
+                                                                            )}
                                                                         >
                                                                             <i className="ri-eye-fill"></i>
                                                                         </Link>
+
+                                                                        {/* Edit */}
                                                                         <Link
                                                                             href={route(
-                                                                                "admin.pads.edit",
-                                                                                pad.id,
+                                                                                "role.pads.edit",
+                                                                                {
+                                                                                    rolePrefix,
+                                                                                    pad: pad.id,
+                                                                                },
                                                                             )}
                                                                             className="btn btn-soft-warning btn-sm"
-                                                                            title={
-                                                                                isGu
-                                                                                    ? "ફેરફાર"
-                                                                                    : "Edit"
-                                                                            }
+                                                                            title={tr(
+                                                                                "edit",
+                                                                            )}
                                                                         >
                                                                             <i className="ri-pencil-fill"></i>
                                                                         </Link>
-                                                                        {/* Single delete button */}
+
+                                                                        {/* Delete */}
                                                                         <button
                                                                             type="button"
                                                                             className="btn btn-soft-danger btn-sm"
-                                                                            title={
-                                                                                isGu
-                                                                                    ? "ડિલીટ કરો"
-                                                                                    : "Delete"
-                                                                            }
+                                                                            title={tr(
+                                                                                "delete",
+                                                                            )}
                                                                             onClick={() =>
                                                                                 handleDeleteOne(
                                                                                     pad.id,
@@ -521,4 +634,5 @@ const EventShowPads = ({ swami, pads = [] }: { swami: any; pads?: any[] }) => {
 };
 
 EventShowPads.layout = (page: any) => <Layout children={page} />;
+
 export default EventShowPads;

@@ -1,0 +1,1 @@
+const s={en:["0","1","2","3","4","5","6","7","8","9"],gu:["૦","૧","૨","૩","૪","૫","૬","૭","૮","૯"]},u=(n,o="en")=>{const t=String(n??""),r=s[o];return r?t.replace(/\d/g,e=>r[Number(e)]??e):t},c=u;export{c as g};

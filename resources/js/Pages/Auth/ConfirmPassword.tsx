@@ -1,40 +1,78 @@
-import { useEffect } from 'react';
-import GuestLayout from '../../Layouts/GuestLayout';
-import { Head, Link, useForm } from '@inertiajs/react';
-import { Button, Card, Col, Container, Form, Row } from 'react-bootstrap';
-import logoLight from '../../../images/logo-light.png';
-import avatar1 from '../../../images/users/avatar-1.jpg'
+import React, { useEffect, useState } from "react";
+
+import GuestLayout from "../../Layouts/GuestLayout";
+
+import { Head, Link, useForm, usePage } from "@inertiajs/react";
+
+import { Button, Card, Col, Container, Form, Row } from "react-bootstrap";
+
+import defaultLogo from "../../../images/logo-light.png";
+
+import LanguageSwitcher from "../../Components/LanguageSwitcher";
+
 export default function ConfirmPassword() {
+    const { translations = {}, settings = {} } = usePage().props as any;
+    const tr = (key: string) => translations[key] ?? key;
+
+    const logoUrl = settings.app_logo
+        ? `/storage/${settings.app_logo}`
+        : defaultLogo;
+
+    const [passwordShow, setPasswordShow] = useState(false);
+
     const { data, setData, post, processing, errors, reset } = useForm({
-        password: '',
+        password: "",
     });
 
     useEffect(() => {
         return () => {
-            reset('password');
+            reset("password");
         };
     }, []);
 
-    const submit = (e: any) => {
+    const submit = (e: React.FormEvent) => {
         e.preventDefault();
 
-        post(route('password.confirm'));
+        post(route("password.confirm"));
     };
 
     return (
         <GuestLayout>
-            <Head title="Lock Screen | Velzon - React Admin & Dashboard Template" />
+            <Head title={tr("confirm_password")} />
+
+            {/* Language Switcher */}
+            <div className="position-absolute top-0 end-0 p-3 z-3">
+                <LanguageSwitcher />
+            </div>
+
             <div className="auth-page-content mt-lg-5">
                 <Container>
                     <Row>
                         <Col lg={12}>
                             <div className="text-center mt-sm-5 mb-4 text-white-50">
                                 <div>
-                                    <Link href={route("/dashboard")} className="d-inline-block auth-logo">
-                                        <img src={logoLight} alt="" height="20" />
+                                    <Link
+                                        href={route("login")}
+                                        className="d-inline-block auth-logo"
+                                    >
+                                        <img
+                                            src={logoUrl}
+                                            alt={tr("app_logo")}
+                                            height="60"
+                                            style={{
+                                                borderRadius: "30px",
+                                            }}
+                                            onError={(e) => {
+                                                e.currentTarget.src =
+                                                    defaultLogo;
+                                            }}
+                                        />
                                     </Link>
                                 </div>
-                                <p className="mt-3 fs-15 fw-medium">Premium Admin & Dashboard Template</p>
+
+                                <p className="mt-3 fs-15 fw-medium">
+                                    {tr("auth_tagline")}
+                                </p>
                             </div>
                         </Col>
                     </Row>
@@ -46,44 +84,109 @@ export default function ConfirmPassword() {
                     <Card className="mt-4">
                         <Card.Body className="p-4">
                             <div className="text-center mt-2">
-                                <h5 className="text-primary">Lock Screen</h5>
-                                <p className="text-muted">Enter your password to unlock the screen!</p>
-                            </div>
-                            <div className="user-thumb text-center">
-                                <img src={avatar1} className="rounded-circle img-thumbnail avatar-lg" alt="thumbnail" />
-                                <h5 className="font-size-15 mt-3">Anna Adame</h5>
-                            </div>
-                            <div className="p-2 mt-4">
-                                <form onSubmit={submit}>
-                                    <div className="mt-4">
-                                        <Form.Label htmlFor="password" value="Password" className='form-label'> Password </Form.Label>
-                                        <span className="text-danger ms-1">*</span>
-                                        <Form.Control
-                                            id="password"
-                                            type="password"
-                                            name="password"
-                                            placeholder="Enter Password"
-                                            value={data.password}
-                                            className={"mt-1 form-control" + (errors.password ? 'is-invalid' : '')}
-                                            autoFocus
-                                            onChange={(e: any) => setData('password', e.target.value)}
-                                            required
-                                        />
+                                <h5 className="text-primary">
+                                    {tr("confirm_password")}
+                                </h5>
 
-                                        <Form.Control.Feedback type="invalid" className='mt-2 d-block'>{errors.password}</Form.Control.Feedback>
+                                <p className="text-muted">
+                                    {tr("confirm_password_description")}
+                                </p>
+                            </div>
+
+                            <div className="p-2 mt-4">
+                                <Form onSubmit={submit}>
+                                    <div className="mb-3">
+                                        <Form.Label
+                                            htmlFor="password"
+                                            className="form-label"
+                                        >
+                                            {tr("password")}
+                                            <span className="text-danger ms-1">
+                                                *
+                                            </span>
+                                        </Form.Label>
+
+                                        <div className="position-relative auth-pass-inputgroup">
+                                            <Form.Control
+                                                id="password"
+                                                type={
+                                                    passwordShow
+                                                        ? "text"
+                                                        : "password"
+                                                }
+                                                name="password"
+                                                placeholder={tr(
+                                                    "password_placeholder",
+                                                )}
+                                                value={data.password}
+                                                className={
+                                                    errors.password
+                                                        ? "is-invalid pe-5"
+                                                        : "pe-5"
+                                                }
+                                                autoFocus
+                                                onChange={(e) =>
+                                                    setData(
+                                                        "password",
+                                                        e.target.value,
+                                                    )
+                                                }
+                                                required
+                                            />
+
+                                            <button
+                                                type="button"
+                                                className="btn btn-link position-absolute end-0 top-0 text-decoration-none text-muted"
+                                                onClick={() =>
+                                                    setPasswordShow(
+                                                        !passwordShow,
+                                                    )
+                                                }
+                                                tabIndex={-1}
+                                            >
+                                                <i
+                                                    className={
+                                                        passwordShow
+                                                            ? "ri-eye-fill align-middle"
+                                                            : "ri-eye-off-fill align-middle"
+                                                    }
+                                                />
+                                            </button>
+                                        </div>
+
+                                        {errors.password && (
+                                            <div className="invalid-feedback d-block">
+                                                {errors.password}
+                                            </div>
+                                        )}
                                     </div>
 
-                                    <div className="flex items-center justify-end mt-4">
-                                        <Button type='submit' className="ml-4 btn btn-success w-100" disabled={processing}>
-                                            Confirm
+                                    <div className="mt-4">
+                                        <Button
+                                            type="submit"
+                                            className="btn btn-success w-100"
+                                            disabled={processing}
+                                        >
+                                            {processing
+                                                ? tr("processing")
+                                                : tr("confirm")}
                                         </Button>
                                     </div>
-                                </form>
+                                </Form>
                             </div>
                         </Card.Body>
                     </Card>
+
                     <div className="mt-4 text-center">
-                        <p className="mb-0">Not you ? return <Link href={route('login')} className="fw-semibold text-primary text-decoration-underline"> Signin </Link> </p>
+                        <p className="mb-0">
+                            {tr("not_you")}{" "}
+                            <Link
+                                href={route("login")}
+                                className="fw-semibold text-primary text-decoration-underline"
+                            >
+                                {tr("sign_in")}
+                            </Link>
+                        </p>
                     </div>
                 </Col>
             </Row>

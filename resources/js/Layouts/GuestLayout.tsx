@@ -1,7 +1,33 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Col, Row } from "react-bootstrap";
 import ApplicationLogo from "../Components/ApplicationLogo";
+import { usePage, router } from "@inertiajs/react";
+import { toast, ToastContainer } from "react-toastify";
+
 export default function Guest({ children }: any) {
+    const { flash, translations = {} } = usePage().props as any;
+
+    useEffect(() => {
+        let hasFlash = false;
+        if (flash?.success) {
+            toast.success(translations[flash.success] ?? flash.success);
+            hasFlash = true;
+        }
+        if (flash?.error) {
+            toast.error(translations[flash.error] ?? flash.error);
+            hasFlash = true;
+        }
+        if (flash?.warning) {
+            toast.warning(translations[flash.warning] ?? flash.warning);
+            hasFlash = true;
+        }
+
+        if (hasFlash && typeof window !== "undefined") {
+            if (router && router.page && router.page.props) {
+                router.page.props.flash = { success: null, error: null, warning: null };
+            }
+        }
+    }, [flash]);
     return (
         <React.Fragment>
             <div className="auth-page-wrapper">
@@ -34,6 +60,7 @@ export default function Guest({ children }: any) {
                     </div>
                 </footer>
             </div>
+            <ToastContainer closeButton={false} limit={1} autoClose={3000} />
         </React.Fragment>
     );
 }

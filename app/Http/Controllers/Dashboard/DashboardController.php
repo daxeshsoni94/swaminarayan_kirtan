@@ -22,10 +22,19 @@ class DashboardController extends Controller
         // ]);
         $totalPads = Pad::count();
         // dd($totalPads);  
-        $totalRecordings = Pad::whereHas('recordedVersion')->count();
+        $totalRecordings = \App\Models\Pad_media::whereNotNull('media_type')
+              ->orWhereNotNull('recording_type')
+              ->orWhereNotNull('youtube_url')
+              ->orWhereNotNull('file_url')
+              ->count();
         $publishedCount = Pad::where('status', 'save')->count();
         $draftCount = Pad::where('status', 'draft')->count();
-        $withRecording = Pad::whereHas('recordedVersion')->count();
+        $withRecording = Pad::whereHas('recordedVersion', function($q) {
+            $q->whereNotNull('media_type')
+              ->orWhereNotNull('recording_type')
+              ->orWhereNotNull('youtube_url')
+              ->orWhereNotNull('file_url');
+        })->count();
         $withoutRecording = max($totalPads - $withRecording, 0);
 
         // dd($withoutRecording);
@@ -37,7 +46,7 @@ class DashboardController extends Controller
 
         $data = [];
         // dd($data);
-        return Inertia::render('DashboardEcommerce/index', [
+        return Inertia::render('DashboardKirtan/index', [
             // Widgets + ActivityOverview summary
             'stats' => [
                 'total_pads'        => $totalPads,
@@ -128,7 +137,7 @@ class DashboardController extends Controller
     private function buildActivityChart(): array
     {
         $months = collect(range(0, 11))->map(
-            fn($i) => Carbon::now()->subMonths(11 - $i)->startOfMonth()
+            fn($i) => Carbon::now()->startOfMonth()->subMonths(11 - $i)
         );
 
         $from = $months->first()->copy()->startOfMonth();
@@ -158,23 +167,16 @@ class DashboardController extends Controller
                     'type' => 'bar',
                     'data' => $padsSeries,
                 ],
-                [
-                    'name' => 'Recordings',
-                    'type' => 'line',
-                    // 'data' => $recordingsSeries,
-                ],
             ],
         ];
     }
 
     private function buildCategoryBreakdown(): array
     {
-        // Count pads per category type (pivot: category_pad or your pivot name)
         $rows = DB::table('categories')
-            ->join('category_pad', 'categories.id', '=', 'category_pad.category_id') // adjust pivot table
+            ->join('category_pad', 'categories.id', '=', 'category_pad.category_id')
             ->select('categories.type', DB::raw('COUNT(DISTINCT category_pad.pad_id) as total'))
             ->groupBy('categories.type')
-            ->orderByDesc('total')
             ->get();
 
         if ($rows->isEmpty()) {
@@ -184,9 +186,25 @@ class DashboardController extends Controller
             ];
         }
 
+        $aggregated = [];
+        foreach ($rows as $row) {
+            $typeData = json_decode($row->type, true);
+            $normalizedKey = is_array($typeData) ? ($typeData['en'] ?? $row->type) : $row->type;
+            
+            if (!isset($aggregated[$normalizedKey])) {
+                $aggregated[$normalizedKey] = [
+                    'label' => $row->type,
+                    'total' => 0
+                ];
+            }
+            $aggregated[$normalizedKey]['total'] += $row->total;
+        }
+
+        usort($aggregated, fn($a, $b) => $b['total'] <=> $a['total']);
+
         return [
-            'labels' => $rows->pluck('type')->values()->all(),
-            'series' => $rows->pluck('total')->map(fn($v) => (int) $v)->values()->all(),
+            'labels' => array_column($aggregated, 'label'),
+            'series' => array_column($aggregated, 'total'),
         ];
     }
 

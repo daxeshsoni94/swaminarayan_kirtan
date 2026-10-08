@@ -62,7 +62,7 @@ class RegisteredUserController extends Controller
                     ? strtolower(str_replace(' ', '-', $user->role->name))
                     : 'admin',
             ])
-            ->with('success', 'Registration successful!');
+            ->with('success', 'register_success');
     }
 
     public function show()

@@ -51,7 +51,8 @@ enum LEFT_SIDEBAR_IMAGE_TYPES {
   IMG1= "img-1",
   IMG2= "img-2",
   IMG3= "img-3",
-  IMG4= "img-4",  
+  IMG4= "img-4",
+  CUSTOM= "custom",
 };
 
 enum PERLOADER_TYPES {

@@ -3,8 +3,8 @@ export const initialState : any = {
   revenueData: [],
   error: {}
 };
-const DashboardEcommerceSlice = createSlice({
-  name: 'DashboardEcommerce',
+const DashboardKirtanSlice = createSlice({
+  name: 'DashboardKirtan',
   initialState,
   reducers: {
     getRevenueChartsData: (state:any, action:any) => {
@@ -12,5 +12,5 @@ const DashboardEcommerceSlice = createSlice({
     },
   },
 });
-export const {getRevenueChartsData} = DashboardEcommerceSlice.actions;
-export default DashboardEcommerceSlice.reducer;
+export const {getRevenueChartsData} = DashboardKirtanSlice.actions;
+export default DashboardKirtanSlice.reducer;

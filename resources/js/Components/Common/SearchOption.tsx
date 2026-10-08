@@ -10,16 +10,9 @@ import image3 from "../../../images/users/avatar-3.jpg";
 import image5 from "../../../images/users/avatar-5.jpg";
 
 const SearchOption = () => {
-    const { locale } = usePage().props as { locale: string };
+    const { locale, translations } = usePage().props as any;
 
-    // ─── Translations ────────────────────────────────────────────────
-    const t = {
-        "Search...": { en: "Search...", gu: "શોધો..." },
-        "Recent Searches": { en: "Recent Searches", gu: "તાજેતરની શોધ" },
-        "View All Results": { en: "View All Results", gu: "બધા પરિણામો જુઓ" },
-    };
-
-    const tr = (key: string) => t[key]?.[locale] ?? t[key]?.en ?? key;
+    const tr = (key: string) => translations?.[key] ?? key;
 
     // ─── State ───────────────────────────────────────────────────────
     const navData = Navdata().props.children;
@@ -74,30 +67,46 @@ const SearchOption = () => {
 
     // Filter routes based on search term
     useEffect(() => {
+        const term = searchTerm.toLowerCase();
         const filteredMenuItems = navData.reduce((result: any, menuItem: any) => {
-            const lowercaseLabel = menuItem.label ? menuItem.label.toLowerCase() : "";
-            const lowercaseLink = menuItem.link ? menuItem.link.toLowerCase() : "";
+            const lowercaseLabel = menuItem.label ? String(menuItem.label).toLowerCase() : "";
+            const lowercaseEnLabel = menuItem.englishLabel ? String(menuItem.englishLabel).toLowerCase() : "";
+            const lowercaseSearchTerms = menuItem.searchTerms ? String(menuItem.searchTerms).toLowerCase() : "";
+            const lowercaseLink = menuItem.link ? String(menuItem.link).toLowerCase() : "";
 
             if (
-                lowercaseLabel.includes(searchTerm.toLowerCase()) ||
-                lowercaseLink.includes(searchTerm.toLowerCase())
+                lowercaseLabel.includes(term) ||
+                lowercaseEnLabel.includes(term) ||
+                lowercaseSearchTerms.includes(term) ||
+                lowercaseLink.includes(term)
             ) {
                 result.push(menuItem);
             }
 
             const filteredSubItems = (menuItem.subItems || []).filter((subItem: any) => {
-                const lowercaseSubItemLabel = subItem.label ? subItem.label.toLowerCase() : "";
-                const lowercaseSubItemLink = subItem.link ? subItem.link.toLowerCase() : "";
+                const subLabel = subItem.label ? String(subItem.label).toLowerCase() : "";
+                const subEnLabel = subItem.englishLabel ? String(subItem.englishLabel).toLowerCase() : "";
+                const subSearchTerms = subItem.searchTerms ? String(subItem.searchTerms).toLowerCase() : "";
+                const subLink = subItem.link ? String(subItem.link).toLowerCase() : "";
 
                 return (
-                    lowercaseSubItemLabel.includes(searchTerm.toLowerCase()) ||
-                    lowercaseSubItemLink.includes(searchTerm.toLowerCase())
+                    subLabel.includes(term) ||
+                    subEnLabel.includes(term) ||
+                    subSearchTerms.includes(term) ||
+                    subLink.includes(term)
                 );
             });
 
             if (filteredSubItems.length > 0) {
-                const menuItemWithSubItems = { ...menuItem, subItems: filteredSubItems };
-                result.push(menuItemWithSubItems);
+                // Prevent duplicate addition if parent already matches
+                if (!result.find((i: any) => i.id === menuItem.id)) {
+                    const menuItemWithSubItems = { ...menuItem, subItems: filteredSubItems };
+                    result.push(menuItemWithSubItems);
+                } else {
+                    // Update the subitems of the already pushed item
+                    const idx = result.findIndex((i: any) => i.id === menuItem.id);
+                    result[idx].subItems = filteredSubItems;
+                }
             }
 
             return result;

@@ -1,196 +1,212 @@
 // resources/js/Pages/Admin/Creators/List.jsx
-// (or Categories/List.jsx — adjust route names to match your backend)
 
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+
 import { Card, Col, Container, Dropdown, Row } from "react-bootstrap";
+
 import TableContainer from "../../../../Components/Common/TableContainer";
-import { Head, Link, router, usePage } from "@inertiajs/react";
+
+import { Head, router, usePage } from "@inertiajs/react";
+
 import BreadCrumb from "../../../../Components/Common/BreadCrumb";
+
 import DeleteModal from "../../../../Components/Common/DeleteModal";
+
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+
 import Layout from "../../../../Layouts";
+
 import { gujaratiNumber } from "../../../../utils/number";
+
 import { useAlphabetFilter } from "../../../../hooks/useAlphabetFilter";
+
 import AlphabetFilter from "../../../../Components/Common/AlphabetFilter";
+
 import { usePermission } from "../../../../hooks/usePermission";
-import { categories } from "../../../../common/data/jobLanding";
 
-// ── Resolve translation object → string (same as Edit / Show) ─────────────────
-const t = (v: any, locale = "en"): string => {
-    if (v == null) return "";
-    if (typeof v === "string") return v;
-    if (typeof v === "object") {
-        return v[locale] ?? v.en ?? v.gu ?? Object.values(v)[0] ?? "";
+/**
+ * Resolve multilingual database value.
+ *
+ * Example:
+ * {
+ *   en: "Bramhanand Swami",
+ *   gu: "બ્રહ્માનંદ સ્વામી"
+ * }
+ */
+const tValue = (value, locale) => {
+    if (value == null) return "";
+
+    if (typeof value === "string") {
+        return value;
     }
-    return String(v);
+
+    if (typeof value === "object") {
+        return value?.[locale] ?? Object.values(value)[0] ?? "";
+    }
+
+    return String(value);
 };
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface Creator {
-    id: number;
-    type: string | { en?: string; gu?: string }; // e.g. {"en":"Creator"} or "Creator"
-    value: string | { en?: string; gu?: string }; // e.g. {"en":"Bramhanand swami"}
-    created_by?: number;
-    created_at: string;
-    updated_at?: string;
-}
+/**
+ * Central translation helper.
+ *
+ * Example:
+ * t("creators")
+ * t("creator_deleted_success")
+ */
+const createTranslator = (translations) => {
+    return (key, replacements = {}) => {
+        let text = translations?.[key] ?? key;
 
-interface PaginatedCreators {
-    data: Creator[];
-    current_page: number;
-    last_page: number;
-    per_page: number;
-    total: number;
-    links: { url: string | null; label: string; active: boolean }[];
-}
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(`:${name}`, String(value));
+        });
 
-interface Props {
-    creators: PaginatedCreators; // rename to `categories` if your controller sends that
-    filters?: {
-        search?: string;
-        type?: string;
-        letter?: string;
+        return text;
     };
-}
-
-interface Creator {
-    id: number;
-    type: string | { en?: string; gu?: string };
-    value: string | { en?: string; gu?: string };
-    pads_count?: number; // ← from withCount('pads')
-    created_by?: number;
-    created_at: string;
-    updated_at?: string;
-}
-
-// ─── Component ────────────────────────────────────────────────────────────────
-const translations = {
-    en: {
-        create: "Create Creator",
-        title: "Creators List",
-        pageTitle: "Creators",
-        searchPlaceholder: "Search by value…",
-        noData: "No creators found.",
-        deleteSuccess: "Creator deleted successfully",
-        bulkDeleteSuccess: "Creators deleted successfully.",
-        bulkDeleteFail: "Failed to delete creators.",
-        selectAtLeastOne: "Select at least one item.",
-        view: "View",
-        edit: "Edit",
-        delete: "Delete",
-        showing: "Showing",
-        of: "of",
-        results: "results",
-    },
-    gu: {
-        create: " બનાવો",
-        title: "રચયિતા યાદી",
-        pageTitle: "રચયિતા",
-        searchPlaceholder: "રચયિતા શોધો…",
-        noData: "કોઈ રચયિતા મળ્યા નથી.",
-        deleteSuccess: "રચયિતા સફળતાપૂર્વક કાઢી નાખ્યું",
-        bulkDeleteSuccess: "રચયિતા સફળતાપૂર્વક કાઢી નાખ્યા.",
-        bulkDeleteFail: "રચયિતા કાઢી નાખવામાં નિષ્ફળતા.",
-        selectAtLeastOne: "ઓછામાં ઓછું એક આઇટમ પસંદ કરો.",
-        view: "જુઓ",
-        edit: "ફેરફાર કરો",
-        delete: "કાઢી નાખો",
-        showing: "બતાવી રહ્યા છીએ",
-        of: "માંથી",
-        results: "પરિણામો",
-    },
 };
 
-const CreatorList: React.FC<Props> = ({ creators, filters }) => {
-    const page = usePage().props as { locale?: string };
-    const { auth } = usePage().props as any;
+const CreatorList = ({ creators, filters }) => {
+    const page = usePage().props;
+
+    const { auth, translations = {}, languages = [], locale } = page;
+
+    /**
+     * Current role prefix.
+     */
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
-    const locale = (page.locale === "gu" ? "gu" : "en") as "en" | "gu";
-    const isGu = locale === "gu";
-    const tr = translations[locale];
+
+    /**
+     * Current locale comes from Laravel/Inertia.
+     *
+     * No hardcoded en/gu switching here.
+     */
+    const currentLocale = locale || "gu";
+
+    /**
+     * Centralized translator.
+     */
+    const tr = useMemo(() => createTranslator(translations), [translations]);
+
+    /**
+     * Permissions.
+     */
     const { can } = usePermission();
+
     const canCreate = can("categories", "create");
+
     const canEdit = can("categories", "edit");
+
     const canDelete = can("categories", "delete");
 
-    const [data, setData] = useState<Creator[]>(creators?.data ?? []);
+    /**
+     * Creator data.
+     */
+    const [data, setData] = useState(creators?.data ?? []);
 
-    // Delete
-    const [item, setItem] = useState<Creator | null>(null);
+    /**
+     * Delete state.
+     */
+    const [item, setItem] = useState(null);
     const [deleteModal, setDeleteModal] = useState(false);
+
     const [deleteModalMulti, setDeleteModalMulti] = useState(false);
 
-    // Filters
+    /**
+     * Search.
+     */
     const [search, setSearch] = useState(filters?.search ?? "");
+
+    /**
+     * Alphabet filter.
+     */
     const { selectedLetter, handleLetterFilter } = useAlphabetFilter(
         "role.category.creatorlist",
         {
-            rolePrefix: rolePrefix,
+            rolePrefix,
             search: search || undefined,
             per_page: 10,
         },
     );
+
+    /**
+     * Update search when backend filters change.
+     */
     useEffect(() => {
         setSearch(filters?.search ?? "");
     }, [filters?.search]);
 
+    /**
+     * Update table data when pagination/search
+     * response comes from Laravel.
+     */
     useEffect(() => {
-        if (creators?.data) setData(creators.data);
+        if (creators?.data) {
+            setData(creators.data);
+        }
     }, [creators]);
 
-    // Column labels by locale
-    const labels = {
-        en: {
-            id: "ID",
-            type: "Type",
-            value: "Creators",
-            padsCount: "Total Pads",
-            createdAt: "Created At",
-            actions: "Actions",
-        },
-        gu: {
-            id: "ક્રમ",
-            type: "પ્રકાર",
-            value: "રચયિતા",
-            padsCount: "કુલ પદો",
-            createdAt: "બનાવ્યાની તારીખ",
-            actions: "ક્રિયાઓ",
-        },
-    }[locale];
+    /**
+     * Column labels.
+     *
+     * All text comes from centralized translations.
+     */
+    const labels = useMemo(
+        () => ({
+            id: tr("id"),
+            type: tr("type"),
+            value: tr("creators"),
+            padsCount: tr("total_pads"),
+            createdAt: tr("created_at"),
+            actions: tr("actions"),
+        }),
+        [tr],
+    );
 
-    const handleEdit = (row: Creator) => {
+    /**
+     * Edit creator.
+     */
+    const handleEdit = (row) => {
         router.visit(
             route("role.creators.edit", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 category: row.id,
             }),
         );
     };
 
-    const handleRowClick = (row: Creator) => {
+    /**
+     * Open creator pads.
+     */
+    const handleRowClick = (row) => {
         router.visit(
             route("role.creators.pads.show", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 category: row.id,
             }),
         );
     };
-    const onClickDelete = (row: Creator) => {
+
+    /**
+     * Open delete modal.
+     */
+    const onClickDelete = (row) => {
         setItem(row);
         setDeleteModal(true);
     };
 
-    const handleSearch = (value: string) => {
-        console.log("CREATOR SEARCH:", value);
-
+    /**
+     * Search creators.
+     */
+    const handleSearch = (value) => {
         setSearch(value);
 
         router.get(
             route("role.category.creatorlist", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
             {
                 search: value || undefined,
@@ -203,26 +219,40 @@ const CreatorList: React.FC<Props> = ({ creators, filters }) => {
             },
         );
     };
-    // Multi-select
-    const [selectedIds, setSelectedIds] = useState<number[]>([]);
+
+    /**
+     * Multi-select.
+     */
+    const [selectedIds, setSelectedIds] = useState([]);
+
     const [isMultiDeleteButton, setIsMultiDeleteButton] = useState(false);
 
+    /**
+     * Select/unselect all rows.
+     */
     const checkedAll = useCallback(
-        (checked: boolean) => {
+        (checked) => {
             if (checked) {
-                const allIds = data.map((r) => Number(r.id));
+                const allIds = data.map((row) => Number(row.id));
+
                 setSelectedIds(allIds);
+
                 setIsMultiDeleteButton(allIds.length > 0);
             } else {
                 setSelectedIds([]);
+
                 setIsMultiDeleteButton(false);
             }
         },
         [data],
     );
 
-    const handleDelete = (deleteRelatedPads: boolean = false) => {
+    /**
+     * Delete single creator.
+     */
+    const handleDelete = (deleteRelatedPads = false) => {
         if (!item) return;
+
         router.post(
             route("role.creator.destroy", {
                 rolePrefix,
@@ -230,46 +260,86 @@ const CreatorList: React.FC<Props> = ({ creators, filters }) => {
             }),
             {
                 _method: "delete",
+
                 delete_related_pads: deleteRelatedPads ? 1 : 0,
             },
             {
                 preserveScroll: true,
+
                 onSuccess: () => {
                     setDeleteModal(false);
-                    toast.success(tr.deleteSuccess);
+                    setItem(null);
+
+                    // toast.success(tr("creator_deleted_success"));
                 },
             },
         );
     };
 
-    const deleteMultiple = (deleteRelatedPads: boolean = false) => {
+    /**
+     * Delete multiple creators.
+     */
+    const deleteMultiple = (deleteRelatedPads = false) => {
         if (!selectedIds.length) {
-            toast.warning(tr.selectAtLeastOne);
+            toast.warning(tr("select_at_least_one_creator"));
+
             return;
         }
+
         router.post(
             route("role.creators.bulk-destroy", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
             {
                 ids: selectedIds,
+
                 delete_related_pads: deleteRelatedPads ? 1 : 0,
             },
             {
                 preserveScroll: true,
+
                 onSuccess: () => {
                     setSelectedIds([]);
+
                     setIsMultiDeleteButton(false);
+
                     setDeleteModalMulti(false);
-                    toast.success(tr.bulkDeleteSuccess);
+
+                    // toast.success(tr("creators_deleted_success"));
                 },
-                onError: () => toast.error(tr.bulkDeleteFail),
+
+                onError: () => {
+                    // toast.error(tr("creators_delete_failed"));
+                },
             },
         );
     };
 
+    /**
+     * Format date according to current locale.
+     */
+    const formatDate = (date) => {
+        if (!date) return "—";
+
+        const formattedDate = new Date(date)
+            .toLocaleDateString("en-IN", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+            })
+            .replace(/\//g, "-");
+
+        return gujaratiNumber(formattedDate, currentLocale);
+    };
+
+    /**
+     * Table columns.
+     */
     const columns = useMemo(
         () => [
+            /**
+             * Checkbox column.
+             */
             ...(canDelete
                 ? [
                       {
@@ -285,7 +355,8 @@ const CreatorList: React.FC<Props> = ({ creators, filters }) => {
                                   onChange={(e) => checkedAll(e.target.checked)}
                               />
                           ),
-                          cell: (cellProps: any) => (
+
+                          cell: (cellProps) => (
                               <input
                                   type="checkbox"
                                   className="form-check-input"
@@ -298,173 +369,229 @@ const CreatorList: React.FC<Props> = ({ creators, filters }) => {
                                       const id = Number(
                                           cellProps.row.original.id,
                                       );
+
                                       setSelectedIds((prev) => {
                                           const updated = e.target.checked
                                               ? [...prev, id]
                                               : prev.filter((x) => x !== id);
+
                                           setIsMultiDeleteButton(
                                               updated.length > 0,
                                           );
+
                                           return updated;
                                       });
                                   }}
                               />
                           ),
+
                           id: "#",
                       },
                   ]
                 : []),
+
+            /**
+             * ID.
+             */
             {
                 header: labels.id,
+
                 accessorKey: "id",
+
                 enableColumnFilter: false,
-                cell: (cellProps: any) => (
+
+                cell: (cellProps) => (
                     <span className="fw-medium text-primary">
-                        #{gujaratiNumber(cellProps.getValue(), locale)}
+                        #{gujaratiNumber(cellProps.getValue(), currentLocale)}
                     </span>
                 ),
             },
+
+            /**
+             * Creator name.
+             */
             {
-                // ── Value resolved by locale ──────────────────────────────────
                 header: labels.value,
+
                 accessorKey: "value",
+
                 enableColumnFilter: false,
-                cell: (cellProps: any) => {
+
+                cell: (cellProps) => {
                     const raw = cellProps.row.original.value;
-                    const display = t(raw, locale); // e.g. "Bramhanand swami"
+
+                    const display = tValue(raw, currentLocale);
+
                     return (
                         <span
                             className="text-muted"
-                            style={{ fontSize: "13px" }}
+                            style={{
+                                fontSize: "13px",
+                            }}
                         >
                             {display || "—"}
                         </span>
                     );
                 },
             },
+
+            /**
+             * Total pads.
+             */
             {
                 header: labels.padsCount,
+
                 accessorKey: "pads_count",
+
                 enableColumnFilter: false,
-                cell: (cellProps: any) => {
+
+                cell: (cellProps) => {
                     const count = cellProps.row.original.pads_count ?? 0;
+
                     return (
                         <span className="badge bg-info-subtle text-info">
-                            {gujaratiNumber(count, locale)}
+                            {gujaratiNumber(count, currentLocale)}
                         </span>
                     );
                 },
             },
+
+            /**
+             * Created date.
+             */
             {
                 header: labels.createdAt,
+
                 accessorKey: "created_at",
+
                 enableColumnFilter: false,
-                cell: (cellProps: any) => {
-                    const formattedDate = new Date(cellProps.getValue())
-                        .toLocaleDateString("en-IN", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            year: "numeric",
-                        })
-                        .replace(/\//g, "-");
+
+                cell: (cellProps) => (
+                    <span className="text-muted">
+                        {formatDate(cellProps.getValue())}
+                    </span>
+                ),
+            },
+
+            /**
+             * Actions.
+             */
+            {
+                header: labels.actions,
+
+                cell: (cellProps) => {
+                    const creator = cellProps.row.original;
+
                     return (
-                        <span className="text-muted">
-                            {gujaratiNumber(formattedDate, locale)}
-                        </span>
+                        <div onClick={(e) => e.stopPropagation()}>
+                            <Dropdown>
+                                <Dropdown.Toggle
+                                    as="a"
+                                    className="btn btn-soft-secondary btn-sm arrow-none"
+                                >
+                                    <i className="ri-more-fill align-middle"></i>
+                                </Dropdown.Toggle>
+
+                                <Dropdown.Menu className="dropdown-menu-end">
+                                    {/* View */}
+                                    <li>
+                                        <Dropdown.Item
+                                            onClick={() =>
+                                                router.visit(
+                                                    route(
+                                                        "role.creators.pads.show",
+                                                        {
+                                                            rolePrefix,
+                                                            category:
+                                                                creator.id,
+                                                        },
+                                                    ),
+                                                )
+                                            }
+                                        >
+                                            <i className="ri-eye-fill align-bottom me-2 text-muted"></i>
+
+                                            {tr("view")}
+                                        </Dropdown.Item>
+                                    </li>
+
+                                    {/* Edit */}
+                                    {canEdit && (
+                                        <li>
+                                            <Dropdown.Item
+                                                onClick={() =>
+                                                    handleEdit(creator)
+                                                }
+                                            >
+                                                <i className="ri-pencil-fill align-bottom me-2 text-muted"></i>
+
+                                                {tr("edit")}
+                                            </Dropdown.Item>
+                                        </li>
+                                    )}
+
+                                    {/* Delete */}
+                                    {canDelete && (
+                                        <li>
+                                            <Dropdown.Item
+                                                className="remove-item-btn"
+                                                onClick={() =>
+                                                    onClickDelete(creator)
+                                                }
+                                            >
+                                                <i className="ri-delete-bin-fill align-bottom me-2 text-muted"></i>
+
+                                                {tr("delete")}
+                                            </Dropdown.Item>
+                                        </li>
+                                    )}
+                                </Dropdown.Menu>
+                            </Dropdown>
+                        </div>
                     );
                 },
             },
-            {
-                header: labels.actions,
-                cell: (cellProps: any) => (
-                    <div onClick={(e) => e.stopPropagation()}>
-                        <Dropdown>
-                            <Dropdown.Toggle
-                                as="a"
-                                className="btn btn-soft-secondary btn-sm arrow-none"
-                            >
-                                <i className="ri-more-fill align-middle"></i>
-                            </Dropdown.Toggle>
-                            <Dropdown.Menu className="dropdown-menu-end">
-                                <li>
-                                    <Dropdown.Item
-                                        href={route("role.creators.pads.show", {
-                                            rolePrefix: rolePrefix,
-                                            category: cellProps.row.original.id,
-                                        })}
-                                    >
-                                        {/* <Dropdown.Item
-                                            href={route("role.pads.show", {
-                                                rolePrefix: rolePrefix,
-                                                pad: cellProps.row.original.id,
-                                            })}
-                                        ></Dropdown.Item> */}
-                                        <i className="ri-eye-fill align-bottom me-2 text-muted"></i>{" "}
-                                        {tr.view}
-                                    </Dropdown.Item>
-                                </li>
-
-                                {canEdit && (
-                                    <li>
-                                        <Dropdown.Item
-                                            onClick={() =>
-                                                handleEdit(
-                                                    cellProps.row.original,
-                                                )
-                                            }
-                                        >
-                                            <i className="ri-pencil-fill align-bottom me-2 text-muted"></i>
-                                            {tr.edit}
-                                        </Dropdown.Item>
-                                    </li>
-                                )}
-
-                                {canDelete && (
-                                    <li>
-                                        <Dropdown.Item
-                                            className="remove-item-btn"
-                                            onClick={() =>
-                                                onClickDelete(
-                                                    cellProps.row.original,
-                                                )
-                                            }
-                                        >
-                                            <i className="ri-delete-bin-fill align-bottom me-2 text-muted"></i>{" "}
-                                            {tr.delete}
-                                        </Dropdown.Item>
-                                    </li>
-                                )}
-                            </Dropdown.Menu>
-                        </Dropdown>
-                    </div>
-                ),
-            },
         ],
-        [labels, locale, tr, checkedAll, selectedIds, data, canDelete, canEdit],
+        [
+            labels,
+            currentLocale,
+            checkedAll,
+            selectedIds,
+            data,
+            canDelete,
+            canEdit,
+            rolePrefix,
+            tr,
+        ],
     );
 
     return (
         <React.Fragment>
-            <Head title={tr.title} />
+            <Head title={tr("creators")} />
+
             <div className="page-content">
                 <Container fluid>
-                    <BreadCrumb title={tr.title} pageTitle={tr.pageTitle} />
+                    <BreadCrumb
+                        title={tr("creators")}
+                        pageTitle={tr("creators")}
+                    />
 
+                    {/* Single delete modal */}
                     <DeleteModal
                         show={deleteModal}
                         onDeleteClick={handleDelete}
                         onCloseClick={() => setDeleteModal(false)}
-                        showPadsOption={true} // ← enable checkbox
-                        isGu={isGu}
+                        showPadsOption={true}
                     />
+
+                    {/* Bulk delete modal */}
                     <DeleteModal
                         show={deleteModalMulti}
                         onDeleteClick={(deleteRelatedPads) => {
                             deleteMultiple(deleteRelatedPads);
                         }}
                         onCloseClick={() => setDeleteModalMulti(false)}
-                        showPadsOption={true} // ← enable checkbox
-                        isGu={isGu}
+                        showPadsOption={true}
                     />
 
                     <Row>
@@ -473,10 +600,12 @@ const CreatorList: React.FC<Props> = ({ creators, filters }) => {
                                 <Card.Header className="border-0">
                                     <div className="d-flex align-items-center">
                                         <h5 className="card-title mb-0 flex-grow-1">
-                                            {isGu ? "રચયિતા" : "Creators"}
+                                            {tr("creators")}
                                         </h5>
+
                                         <div className="flex-shrink-0">
                                             <div className="d-flex flex-wrap gap-2">
+                                                {/* Create */}
                                                 {canCreate && (
                                                     <button
                                                         className="btn btn-danger add-btn"
@@ -485,17 +614,18 @@ const CreatorList: React.FC<Props> = ({ creators, filters }) => {
                                                                 route(
                                                                     "role.creators.creatorform",
                                                                     {
-                                                                        rolePrefix:
-                                                                            rolePrefix,
+                                                                        rolePrefix,
                                                                     },
                                                                 ),
                                                             )
                                                         }
                                                     >
                                                         <i className="ri-add-line align-bottom"></i>{" "}
-                                                        {tr.create}
+                                                        {tr("create_creator")}
                                                     </button>
                                                 )}
+
+                                                {/* Bulk delete */}
                                                 {canDelete &&
                                                     isMultiDeleteButton && (
                                                         <button
@@ -515,35 +645,31 @@ const CreatorList: React.FC<Props> = ({ creators, filters }) => {
                                 </Card.Header>
 
                                 <Card.Body className="pt-0">
+                                    {/* Search */}
                                     <div className="d-flex justify-content-end mb-3">
                                         <input
                                             type="search"
                                             className="form-control"
-                                            style={{ maxWidth: 280 }}
-                                            placeholder={tr.searchPlaceholder}
+                                            style={{
+                                                maxWidth: 280,
+                                            }}
+                                            placeholder={tr(
+                                                "search_creator_placeholder",
+                                            )}
                                             value={search}
                                             onChange={(e) =>
                                                 handleSearch(e.target.value)
                                             }
                                         />
                                     </div>
+
+                                    {/* Alphabet filter */}
                                     <AlphabetFilter
                                         selectedLetter={selectedLetter}
                                         onSelect={handleLetterFilter}
                                     />
-                                    {/* Locale indicator (optional, same as Show/Edit) */}
-                                    {/* <div className="mb-2">
-                                        <span className="badge bg-primary">
-                                            {isGu
-                                                ? "જોવું: ગુજરાતી (GU)"
-                                                : "Viewing: English (EN)"}
-                                        </span>
-                                        <small className="text-muted ms-2">
-                                            Switch language from the header
-                                            toggle.
-                                        </small>
-                                    </div> */}
 
+                                    {/* Table */}
                                     {data && data.length > 0 ? (
                                         <>
                                             <TableContainer
@@ -555,27 +681,44 @@ const CreatorList: React.FC<Props> = ({ creators, filters }) => {
                                                 tableClass="align-middle table-nowrap mb-0"
                                                 theadClass=""
                                                 thClass=""
-                                                SearchPlaceholder={
-                                                    tr.searchPlaceholder
-                                                }
+                                                SearchPlaceholder={tr(
+                                                    "search_creator_placeholder",
+                                                )}
                                                 onSearch={handleSearch}
                                                 onRowClick={handleRowClick}
                                             />
 
+                                            {/* Pagination */}
                                             {creators.last_page > 1 && (
                                                 <div className="d-flex justify-content-between align-items-center mt-2">
                                                     <small className="text-muted">
-                                                        {tr.showing}{" "}
-                                                        {data.length} {tr.of}{" "}
-                                                        {creators.total}{" "}
-                                                        {tr.results}
+                                                        {tr("showing")}{" "}
+                                                        {gujaratiNumber(
+                                                            data.length,
+                                                            currentLocale,
+                                                        )}{" "}
+                                                        {tr("of")}{" "}
+                                                        {gujaratiNumber(
+                                                            creators.total,
+                                                            currentLocale,
+                                                        )}{" "}
+                                                        {tr("results")}
                                                     </small>
+
                                                     <ul className="pagination pagination-sm mb-0">
                                                         {creators.links.map(
                                                             (link, idx) => (
                                                                 <li
                                                                     key={idx}
-                                                                    className={`page-item ${link.active ? "active" : ""} ${!link.url ? "disabled" : ""}`}
+                                                                    className={`page-item ${
+                                                                        link.active
+                                                                            ? "active"
+                                                                            : ""
+                                                                    } ${
+                                                                        !link.url
+                                                                            ? "disabled"
+                                                                            : ""
+                                                                    }`}
                                                                 >
                                                                     <button
                                                                         className="page-link"
@@ -602,10 +745,11 @@ const CreatorList: React.FC<Props> = ({ creators, filters }) => {
                                     ) : (
                                         <div className="text-center py-5">
                                             <div className="text-muted">
-                                                {tr.noData}
+                                                {tr("no_creators_found")}
                                             </div>
                                         </div>
                                     )}
+
                                     <ToastContainer
                                         closeButton={false}
                                         limit={1}
@@ -620,5 +764,6 @@ const CreatorList: React.FC<Props> = ({ creators, filters }) => {
     );
 };
 
-CreatorList.layout = (page: any) => <Layout children={page} />;
+CreatorList.layout = (page) => <Layout children={page} />;
+
 export default CreatorList;

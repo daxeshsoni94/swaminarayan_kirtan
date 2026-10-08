@@ -1,210 +1,259 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+
 import { Card, Col, Container, Dropdown, Row } from "react-bootstrap";
+
 import TableContainer from "../../../../Components/Common/TableContainer";
+
 import { Head, router, usePage } from "@inertiajs/react";
+
 import BreadCrumb from "../../../../Components/Common/BreadCrumb";
+
 import DeleteModal from "../../../../Components/Common/DeleteModal";
+
 import { toast, ToastContainer } from "react-toastify";
+
 import "react-toastify/dist/ReactToastify.css";
+
 import Layout from "../../../../Layouts";
+
 import { gujaratiNumber } from "../../../../utils/number";
+
 import { useAlphabetFilter } from "../../../../hooks/useAlphabetFilter";
+
 import AlphabetFilter from "../../../../Components/Common/AlphabetFilter";
+
 import { usePermission } from "../../../../hooks/usePermission";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Resolve translation object → string
-// Example:
-// { en: "Ahmedabad", gu: "અમદાવાદ" } → Ahmedabad / અમદાવાદ
-// ─────────────────────────────────────────────────────────────────────────────
-const t = (v, locale = "en") => {
-    if (v == null) return "";
-    if (typeof v === "string") {
-        return v;
+/**
+ * Resolve multilingual database value.
+ *
+ * Example:
+ * {
+ *     en: "Ahmedabad",
+ *     gu: "અમદાવાદ"
+ * }
+ *
+ * Returns the value for the current locale.
+ */
+const tValue = (value: any, locale: string): string => {
+    if (value == null) return "";
+
+    if (typeof value === "string") {
+        return value;
     }
-    if (typeof v === "object") {
-        return v[locale] ?? v.en ?? v.gu ?? Object.values(v)[0] ?? "";
+    if (typeof value === "object") {
+        return (
+            value?.[locale] ??
+            Object.values(value).find(
+                (item) => typeof item === "string" && item.trim() !== "",
+            ) ??
+            ""
+        );
     }
-    return String(v);
+
+    return String(value);
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────────────────────────────────────
 /**
- * @typedef {Object} PlaceItem
- * @property {number} id
- * @property {string|Object} type
- * @property {string|Object} value
- * @property {number} [pads_count]
- * @property {number} [created_by]
- * @property {string} created_at
- * @property {string} [updated_at]
+ * Centralized translation helper.
+ *
+ * Supports:
+ * tr("places")
+ * tr("total_places", { count: 10 })
  */
-/**
- * @typedef {Object} PaginatedPlaces
- * @property {PlaceItem[]} data
- * @property {number} current_page
- * @property {number} last_page
- * @property {number} per_page
- * @property {number} total
- * @property {Array} links
- */
+const createTranslator = (translations: Record<string, any>) => {
+    return (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ): string => {
+        let text = translations[key] ?? key;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Translations
-// ─────────────────────────────────────────────────────────────────────────────
-const translations = {
-    en: {
-        create: "Create Place",
-        title: "Places",
-        pageTitle: "Places",
-        searchPlaceholder: "Search by place name…",
-        noData: "No places found.",
-        deleteSuccess: "Place deleted successfully.",
-        bulkDeleteSuccess: "Places deleted successfully.",
-        bulkDeleteFail: "Failed to delete places.",
-        selectAtLeastOne: "Select at least one place.",
-        view: "View",
-        edit: "Edit",
-        delete: "Delete",
-        showing: "Showing",
-        of: "of",
-        results: "results",
-    },
-    gu: {
-        create: "સ્થળ બનાવો",
-        title: "સ્થળોની યાદી",
-        pageTitle: "સ્થળો",
-        searchPlaceholder: "સ્થળ શોધો…",
-        noData: "કોઈ સ્થળ મળી નથી.",
-        deleteSuccess: "સ્થળ સફળતાપૂર્વક કાઢી નાખવામાં આવ્યું.",
-        bulkDeleteSuccess: "સ્થળો સફળતાપૂર્વક કાઢી નાખવામાં આવ્યા.",
-        bulkDeleteFail: "સ્થળો કાઢી નાખવામાં નિષ્ફળતા.",
-        selectAtLeastOne: "ઓછામાં ઓછું એક સ્થળ પસંદ કરો.",
-        view: "જુઓ",
-        edit: "ફેરફાર કરો",
-        delete: "કાઢી નાખો",
-        showing: "બતાવી રહ્યા છીએ",
-        of: "માંથી",
-        results: "પરિણામો",
-    },
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(`:${name}`, String(value));
+        });
+
+        return text;
+    };
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Component
-// ─────────────────────────────────────────────────────────────────────────────
-const PlaceList = ({ places, filters }) => {
-    const page = usePage().props;
-    const locale = page.locale === "gu" ? "gu" : "en";
-    const isGu = locale === "gu";
-    const { auth } = usePage().props as any;
+interface PlaceItem {
+    id: number;
+    type?: string | Record<string, string>;
+    value?: string | Record<string, string>;
+    pads_count?: number;
+    created_by?: number;
+    created_at: string;
+    updated_at?: string;
+}
+
+interface PaginatedPlaces {
+    data: PlaceItem[];
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+    links: any[];
+}
+
+interface PlaceListProps {
+    places: PaginatedPlaces;
+    filters?: {
+        search?: string;
+    };
+}
+
+const PlaceList = ({ places, filters }: PlaceListProps) => {
+    const page = usePage().props as any;
+
+    const { auth, translations = {}, locale, languages = [] } = page;
+
+    /**
+     * Current locale comes from Laravel/Inertia.
+     *
+     * No hardcoded en/gu switching.
+     */
+    const currentLocale = locale || "gu";
+
+    /**
+     * Centralized translator.
+     */
+    const tr = useMemo(() => createTranslator(translations), [translations]);
+
+    /**
+     * Dynamic role prefix.
+     */
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
-    const tr = translations[locale];
+
     const { can } = usePermission();
 
     const canCreate = can("categories", "create");
     const canEdit = can("categories", "edit");
     const canDelete = can("categories", "delete");
 
-    const [data, setData] = useState(places?.data ?? []);
+    const [data, setData] = useState<PlaceItem[]>(places?.data ?? []);
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────
     // Delete state
-    // ─────────────────────────────────────────────────────────────────────────
-    const [item, setItem] = useState(null);
+    // ─────────────────────────────────────────────────────────────
+
+    const [item, setItem] = useState<PlaceItem | null>(null);
+
     const [deleteModal, setDeleteModal] = useState(false);
+
     const [deleteModalMulti, setDeleteModalMulti] = useState(false);
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────
     // Search
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────
+
     const [search, setSearch] = useState(filters?.search ?? "");
+
     const { selectedLetter, handleLetterFilter } = useAlphabetFilter(
         "role.category.placelist",
         {
-            rolePrefix: rolePrefix,
+            rolePrefix,
             search: search || undefined,
             per_page: 10,
         },
     );
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────
     // Selected IDs
-    // ─────────────────────────────────────────────────────────────────────────
-    const [selectedIds, setSelectedIds] = useState([]);
+    // ─────────────────────────────────────────────────────────────
+
+    const [selectedIds, setSelectedIds] = useState<number[]>([]);
+
     const [isMultiDeleteButton, setIsMultiDeleteButton] = useState(false);
 
+    // ─────────────────────────────────────────────────────────────
     // Update local data when Inertia receives new props
+    // ─────────────────────────────────────────────────────────────
+
     useEffect(() => {
         if (places?.data) {
             setData(places.data);
         }
     }, [places]);
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Column labels
-    // ─────────────────────────────────────────────────────────────────────────
-    const labels = {
-        en: {
-            id: "ID",
-            value: "Place",
-            padsCount: "Total Pads",
-            createdAt: "Created At",
-            actions: "Actions",
-        },
-        gu: {
-            id: "ક્રમ",
-            type: "પ્રકાર",
-            value: "સ્થળ",
-            padsCount: "કુલ પદો",
-            createdAt: "બનાવ્યાની તારીખ",
-            actions: "ક્રિયાઓ",
-        },
-    }[locale];
-
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────
     // Edit
-    // ─────────────────────────────────────────────────────────────────────────
-    const handleEdit = (row) => {
+    // ─────────────────────────────────────────────────────────────
+
+    const handleEdit = (row: PlaceItem) => {
         router.visit(
             route("role.place.edit", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 place: row.id,
             }),
         );
     };
 
-    const handleRowClick = (row: Pad) => {
+    // ─────────────────────────────────────────────────────────────
+    // Row click
+    // ─────────────────────────────────────────────────────────────
+
+    const handleRowClick = (row: PlaceItem) => {
         router.visit(
             route("role.places.pads.show", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 place: row.id,
             }),
         );
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────
     // Delete single
-    // ─────────────────────────────────────────────────────────────────────────
-    const onClickDelete = (row) => {
+    // ─────────────────────────────────────────────────────────────
+
+    const onClickDelete = (row: PlaceItem) => {
         setItem(row);
         setDeleteModal(true);
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Search
-    // ─────────────────────────────────────────────────────────────────────────
-    const handleSearch = (value) => {
-        console.log("PLACE SEARCH:", value);
+    // ─────────────────────────────────────────────────────────────
+    // Delete single
+    // ─────────────────────────────────────────────────────────────
 
+    const handleDelete = (deleteRelatedPads: boolean = false) => {
+        if (!item) return;
+
+        router.delete(
+            route("role.place.destroy", {
+                rolePrefix,
+                id: item.id,
+            }),
+            {
+                data: {
+                    delete_related_pads: deleteRelatedPads ? 1 : 0,
+                },
+                preserveScroll: true,
+
+                onSuccess: () => {
+                    // toast.success(tr("place_deleted_success"));
+
+                    setDeleteModal(false);
+                    setItem(null);
+                },
+
+                onError: () => {
+                    // toast.error(tr("place_delete_failed"));
+                },
+            },
+        );
+    };
+
+    // ─────────────────────────────────────────────────────────────
+    // Search
+    // ─────────────────────────────────────────────────────────────
+
+    const handleSearch = (value: string) => {
         setSearch(value);
 
         router.get(
             route("role.category.placelist", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
             {
                 search: value || undefined,
@@ -217,13 +266,15 @@ const PlaceList = ({ places, filters }) => {
         );
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────
     // Select all
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────
+
     const checkedAll = useCallback(
-        (checked) => {
+        (checked: boolean) => {
             if (checked) {
                 const allIds = data.map((row) => Number(row.id));
+
                 setSelectedIds(allIds);
                 setIsMultiDeleteButton(allIds.length > 0);
             } else {
@@ -234,21 +285,19 @@ const PlaceList = ({ places, filters }) => {
         [data],
     );
 
-    const handleDelete = (deleteRelatedPads: boolean = false) => {
-        if (!item) return;
-    };
-
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────
     // Bulk delete
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────
+
     const deleteMultiple = (deleteRelatedPads: boolean = false) => {
         if (!selectedIds.length) {
-            toast.warning(tr.selectAtLeastOne);
+            // toast.warning(tr("select_at_least_one_place"));
             return;
         }
+
         router.post(
             route("role.places.bulk-destroy", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
             {
                 ids: selectedIds,
@@ -256,27 +305,31 @@ const PlaceList = ({ places, filters }) => {
             },
             {
                 preserveScroll: true,
+
                 onSuccess: () => {
-                    toast.success(tr.bulkDeleteSuccess);
+                    // toast.success(tr("places_deleted_success"));
+
                     setSelectedIds([]);
                     setIsMultiDeleteButton(false);
                     setDeleteModalMulti(false);
                 },
+
                 onError: () => {
-                    toast.error(tr.bulkDeleteFail);
+                    // toast.error(tr("places_delete_failed"));
                 },
             },
         );
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────
     // Columns
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────
+
     const columns = useMemo(
         () => [
+            // Checkbox
             ...(canDelete
                 ? [
-                      // Checkbox
                       {
                           header: (
                               <input
@@ -290,8 +343,10 @@ const PlaceList = ({ places, filters }) => {
                                   onChange={(e) => checkedAll(e.target.checked)}
                               />
                           ),
-                          cell: (cellProps) => {
+
+                          cell: (cellProps: any) => {
                               const id = Number(cellProps.row.original.id);
+
                               return (
                                   <input
                                       type="checkbox"
@@ -306,87 +361,109 @@ const PlaceList = ({ places, filters }) => {
                                                   : prev.filter(
                                                         (x) => x !== id,
                                                     );
+
                                               setIsMultiDeleteButton(
                                                   updated.length > 0,
                                               );
+
                                               return updated;
                                           });
                                       }}
                                   />
                               );
                           },
+
                           id: "#",
                       },
                   ]
                 : []),
+
             // ID
             {
-                header: labels.id,
+                header: tr("id"),
                 accessorKey: "id",
                 enableColumnFilter: false,
-                cell: (cellProps) => (
+
+                cell: (cellProps: any) => (
                     <span className="fw-medium text-primary">
-                        #{gujaratiNumber(cellProps.getValue(), locale)}
+                        #{gujaratiNumber(cellProps.getValue(), currentLocale)}
                     </span>
                 ),
             },
-            // Place value
+
+            // Place
             {
-                header: labels.value,
+                header: tr("place"),
                 accessorKey: "value",
                 enableColumnFilter: false,
-                cell: (cellProps) => {
+
+                cell: (cellProps: any) => {
                     const raw = cellProps.row.original.value;
-                    const display = t(raw, locale);
+
+                    const display = tValue(raw, currentLocale);
+
                     return (
                         <span
                             className="text-muted"
-                            style={{ fontSize: "13px" }}
+                            style={{
+                                fontSize: "13px",
+                            }}
                         >
                             {display || "—"}
                         </span>
                     );
                 },
             },
-            // Pads count
+
+            // Total Pads
             {
-                header: labels.padsCount,
+                header: tr("total_pads"),
                 accessorKey: "pads_count",
                 enableColumnFilter: false,
-                cell: (cellProps) => {
+
+                cell: (cellProps: any) => {
                     const count = cellProps.row.original.pads_count ?? 0;
+
                     return (
                         <span className="badge bg-info-subtle text-info">
-                            {gujaratiNumber(count, locale)}
+                            {gujaratiNumber(count, currentLocale)}
                         </span>
                     );
                 },
             },
-            // Created date
+
+            // Created At
             {
-                header: labels.createdAt,
+                header: tr("created_at"),
                 accessorKey: "created_at",
                 enableColumnFilter: false,
+
                 cell: (cellProps: any) => {
-                    const formattedDate = new Date(cellProps.getValue())
+                    const value = cellProps.getValue();
+
+                    const formattedDate = new Date(value)
                         .toLocaleDateString("en-IN", {
                             day: "2-digit",
                             month: "2-digit",
                             year: "numeric",
                         })
                         .replace(/\//g, "-");
+
                     return (
                         <span className="text-muted">
-                            {gujaratiNumber(formattedDate, locale)}
+                            {gujaratiNumber(formattedDate, currentLocale)}
                         </span>
                     );
                 },
             },
+
             // Actions
             {
-                header: labels.actions,
-                cell: (cellProps) => {
+                header: tr("actions"),
+
+                cell: (cellProps: any) => {
                     const row = cellProps.row.original;
+
                     return (
                         <div onClick={(e) => e.stopPropagation()}>
                             <Dropdown>
@@ -396,23 +473,29 @@ const PlaceList = ({ places, filters }) => {
                                 >
                                     <i className="ri-more-fill align-middle"></i>
                                 </Dropdown.Toggle>
+
                                 <Dropdown.Menu className="dropdown-menu-end">
                                     {/* View */}
                                     <li>
                                         <Dropdown.Item
-                                            href={route(
-                                                "role.places.pads.show",
-                                                {
-                                                    rolePrefix: rolePrefix,
-                                                    place: cellProps.row
-                                                        .original.id,
-                                                },
-                                            )}
+                                            onClick={() =>
+                                                router.visit(
+                                                    route(
+                                                        "role.places.pads.show",
+                                                        {
+                                                            rolePrefix,
+                                                            place: row.id,
+                                                        },
+                                                    ),
+                                                )
+                                            }
                                         >
                                             <i className="ri-eye-fill align-bottom me-2 text-muted"></i>
-                                            {tr.view}
+
+                                            {tr("view")}
                                         </Dropdown.Item>
                                     </li>
+
                                     {/* Edit */}
                                     {canEdit && (
                                         <li>
@@ -420,7 +503,8 @@ const PlaceList = ({ places, filters }) => {
                                                 onClick={() => handleEdit(row)}
                                             >
                                                 <i className="ri-pencil-fill align-bottom me-2 text-muted"></i>
-                                                {tr.edit}
+
+                                                {tr("edit")}
                                             </Dropdown.Item>
                                         </li>
                                     )}
@@ -431,12 +515,12 @@ const PlaceList = ({ places, filters }) => {
                                             <Dropdown.Item
                                                 className="remove-item-btn"
                                                 onClick={() =>
-                                                    
                                                     onClickDelete(row)
                                                 }
                                             >
                                                 <i className="ri-delete-bin-fill align-bottom me-2 text-muted"></i>
-                                                {tr.delete}
+
+                                                {tr("delete")}
                                             </Dropdown.Item>
                                         </li>
                                     )}
@@ -447,27 +531,41 @@ const PlaceList = ({ places, filters }) => {
                 },
             },
         ],
-        [labels, locale, tr, checkedAll, selectedIds, data, canDelete, canEdit],
+        [
+            tr,
+            currentLocale,
+            checkedAll,
+            selectedIds,
+            data,
+            canDelete,
+            canEdit,
+            rolePrefix,
+        ],
     );
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────
     // Render
-    // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────
+
     return (
         <React.Fragment>
-            <Head title={tr.title} />
+            <Head title={tr("places")} />
+
             <div className="page-content">
                 <Container fluid>
-                    <BreadCrumb title={tr.title} pageTitle={tr.pageTitle} />
+                    <BreadCrumb
+                        title={tr("places_list_title")}
+                        pageTitle={tr("places")}
+                    />
 
                     {/* Single Delete Modal */}
                     <DeleteModal
                         show={deleteModal}
                         onDeleteClick={handleDelete}
                         onCloseClick={() => setDeleteModal(false)}
-                        showPadsOption={true} // ← enable checkbox
-                        isGu={isGu}
+                        showPadsOption={true}
                     />
+
                     {/* Bulk Delete Modal */}
                     <DeleteModal
                         show={deleteModalMulti}
@@ -475,8 +573,7 @@ const PlaceList = ({ places, filters }) => {
                             deleteMultiple(deleteRelatedPads);
                         }}
                         onCloseClick={() => setDeleteModalMulti(false)}
-                        showPadsOption={true} // ← enable checkbox
-                        isGu={isGu}
+                        showPadsOption={true}
                     />
 
                     <Row>
@@ -486,8 +583,9 @@ const PlaceList = ({ places, filters }) => {
                                 <Card.Header className="border-0">
                                     <div className="d-flex align-items-center">
                                         <h5 className="card-title mb-0 flex-grow-1">
-                                            {isGu ? "સ્થળો" : "Places"}
+                                            {tr("places")}
                                         </h5>
+
                                         <div className="flex-shrink-0">
                                             <div className="d-flex flex-wrap gap-2">
                                                 {/* Create */}
@@ -499,17 +597,17 @@ const PlaceList = ({ places, filters }) => {
                                                                 route(
                                                                     "role.category.placeform",
                                                                     {
-                                                                        rolePrefix:
-                                                                            rolePrefix,
+                                                                        rolePrefix,
                                                                     },
                                                                 ),
                                                             )
                                                         }
                                                     >
                                                         <i className="ri-add-line align-bottom"></i>{" "}
-                                                        {tr.create}
+                                                        {tr("create_place")}
                                                     </button>
                                                 )}
+
                                                 {/* Bulk Delete */}
                                                 {canDelete &&
                                                     isMultiDeleteButton && (
@@ -530,12 +628,17 @@ const PlaceList = ({ places, filters }) => {
                                 </Card.Header>
 
                                 <Card.Body className="pt-0">
+                                    {/* Search */}
                                     <div className="d-flex justify-content-end mb-3">
                                         <input
                                             type="search"
                                             className="form-control"
-                                            style={{ maxWidth: 280 }}
-                                            placeholder={tr.searchPlaceholder}
+                                            style={{
+                                                maxWidth: 280,
+                                            }}
+                                            placeholder={tr(
+                                                "search_place_placeholder",
+                                            )}
                                             value={search}
                                             onChange={(e) =>
                                                 handleSearch(e.target.value)
@@ -543,6 +646,7 @@ const PlaceList = ({ places, filters }) => {
                                         />
                                     </div>
 
+                                    {/* Alphabet Filter */}
                                     <AlphabetFilter
                                         selectedLetter={selectedLetter}
                                         onSelect={handleLetterFilter}
@@ -560,9 +664,9 @@ const PlaceList = ({ places, filters }) => {
                                                 tableClass="align-middle table-nowrap mb-0"
                                                 theadClass=""
                                                 thClass=""
-                                                SearchPlaceholder={
-                                                    tr.searchPlaceholder
-                                                }
+                                                SearchPlaceholder={tr(
+                                                    "search_place_placeholder",
+                                                )}
                                                 onSearch={handleSearch}
                                                 onRowClick={handleRowClick}
                                             />
@@ -571,11 +675,19 @@ const PlaceList = ({ places, filters }) => {
                                             {places.last_page > 1 && (
                                                 <div className="d-flex justify-content-between align-items-center mt-2">
                                                     <small className="text-muted">
-                                                        {tr.showing}{" "}
-                                                        {data.length} {tr.of}{" "}
-                                                        {places.total}{" "}
-                                                        {tr.results}
+                                                        {tr("showing")}{" "}
+                                                        {gujaratiNumber(
+                                                            data.length,
+                                                            currentLocale,
+                                                        )}{" "}
+                                                        {tr("of")}{" "}
+                                                        {gujaratiNumber(
+                                                            places.total,
+                                                            currentLocale,
+                                                        )}{" "}
+                                                        {tr("results")}
                                                     </small>
+
                                                     <ul className="pagination pagination-sm mb-0">
                                                         {places.links.map(
                                                             (link, idx) => (
@@ -616,15 +728,15 @@ const PlaceList = ({ places, filters }) => {
                                     ) : (
                                         <div className="text-center py-5">
                                             <div className="text-muted">
-                                                {tr.noData}
+                                                {tr("no_places_found")}
                                             </div>
                                         </div>
                                     )}
 
-                                    <ToastContainer
+                                    {/* <ToastContainer
                                         closeButton={false}
                                         limit={1}
-                                    />
+                                    /> */}
                                 </Card.Body>
                             </Card>
                         </Col>
@@ -635,5 +747,6 @@ const PlaceList = ({ places, filters }) => {
     );
 };
 
-PlaceList.layout = (page) => <Layout children={page} />;
+PlaceList.layout = (page: React.ReactNode) => <Layout>{page}</Layout>;
+
 export default PlaceList;

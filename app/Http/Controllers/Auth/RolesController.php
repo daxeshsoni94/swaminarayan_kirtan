@@ -8,7 +8,6 @@ use App\Models\Role;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
-
 class RolesController extends Controller
 {
   public function index(Request $request)
@@ -21,25 +20,23 @@ class RolesController extends Controller
     $query = Role::with('permissions')
       ->withCount('users');
 
-
     if ($search = $request->input('search')) {
       $query->where('name', 'like', "%{$search}%");
     }
 
-    $roles = $query->latest()->paginate(10)->withQueryString();
+    $roles = $query
+      ->latest()
+      ->paginate(10)
+      ->withQueryString();
 
-    // Group permissions by module for the frontend
-    // $permissions = Permission::all()->groupBy('module');
     return Inertia::render('Admin/Roles/List', [
       'roles' => $roles,
       'filters' => $request->only(['search']),
-      // 'permissions' => $permissions,
     ]);
   }
 
   public function create()
   {
-    // $permissions = Permission::all()->groupBy('module');
     $permissions = Permission::all()
       ->map(function ($permission) {
         return [
@@ -54,7 +51,7 @@ class RolesController extends Controller
       ->groupBy('module');
 
     return Inertia::render('Admin/Roles/Form', [
-      'role'        => null,
+      'role' => null,
       'permissions' => $permissions,
     ]);
   }
@@ -63,7 +60,6 @@ class RolesController extends Controller
   {
     $role->load('permissions');
 
-    // $permissions = Permission::all()->groupBy('module');
     $permissions = Permission::all()
       ->map(function ($permission) {
         return [
@@ -77,91 +73,69 @@ class RolesController extends Controller
       })
       ->groupBy('module');
 
-
     return Inertia::render('Admin/Roles/Form', [
-      'role'        => $role,
+      'role' => $role,
       'permissions' => $permissions,
     ]);
   }
-
 
   public function store($rolePrefix, Request $request)
   {
     $request->validate([
       'name' => 'required|string|max:255|unique:roles,name',
-      'permissions'   => 'array',
+      'permissions' => 'array',
     ]);
-    $locale = app()->getLocale();
 
-    if (!in_array($locale, ['en', 'gu'], true)) {
-      $locale = 'en';
-    }
     $role = Role::create([
       'name' => $request->name,
     ]);
+
     if ($request->filled('permissions')) {
       $role->permissions()->sync($request->permissions);
     }
+
     return redirect()
       ->route('role.roles.list', [
         'rolePrefix' => $rolePrefix,
       ])
-      ->with('success', $locale === 'gu'
-        ? 'ભૂમિકા સફળતાપૂર્વક બનાવવામાં આવી.'
-        : 'Role created successfully.');
+      ->with('success', 'role_created_success');
   }
 
   public function update($rolePrefix, Request $request, Role $role)
   {
     $request->validate([
       'name' => 'required|string|max:255|unique:roles,name,' . $role->id,
-      'permissions'   => 'array',
+      'permissions' => 'array',
     ]);
-    $locale = app()->getLocale();
 
-    if (!in_array($locale, ['en', 'gu'], true)) {
-      $locale = 'en';
-    }
     $role->update([
       'name' => $request->name,
     ]);
 
-    $role->permissions()->sync($request->permissions ?? []);
+    $role->permissions()->sync(
+      $request->permissions ?? []
+    );
 
     return redirect()
       ->route('role.roles.list', [
         'rolePrefix' => $rolePrefix,
       ])
-      ->with('success', $locale === 'gu'
-        ? 'ભૂમિકા સફળતાપૂર્વક અપડેટ કરવામાં આવી.'
-        : 'Role updated successfully.');
+      ->with('success', 'role_updated_success');
   }
 
-  public function destroy($rolePrefix,Role $role)
+  public function destroy($rolePrefix, Role $role)
   {
-    $locale = app()->getLocale();
-
-    if (!in_array($locale, ['en', 'gu'], true)) {
-      $locale = 'en';
-    }
     $role->delete();
 
     return redirect()
       ->back()
-      ->with('success', $locale === 'gu'
-        ? 'ભૂમિકા સફળતાપૂર્વક કાઢી નાખવામાં આવી.'
-        : 'Role deleted successfully.');
+      ->with('success', 'role_deleted_success');
   }
 
   public function bulkDestroy($rolePrefix, Request $request)
   {
-    $locale = app()->getLocale();
-
-    if (!in_array($locale, ['en', 'gu'], true)) {
-      $locale = 'en';
-    }
     $request->validate([
-      'ids'   => 'required|array',
+      'ids' => 'required|array',
       'ids.*' => 'integer|exists:roles,id',
     ]);
 
@@ -169,8 +143,6 @@ class RolesController extends Controller
 
     return redirect()
       ->back()
-      ->with('success', $locale === 'gu'
-        ? 'ભૂમિકાઓ સફળતાપૂર્વક કાઢી નાખવામાં આવી.'
-        : 'Roles deleted successfully.');
+      ->with('success', 'roles_deleted_success');
   }
 }

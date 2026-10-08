@@ -1,105 +1,108 @@
 import InputError from "../../../Components/InputError";
+
 import { useForm, usePage } from "@inertiajs/react";
+
 import { Button, Card, Col, Form, Row } from "react-bootstrap";
-import React, { useState } from "react";
-import defaultLogo from "../../../../images/logo-light.png";
 
-export default function UpdateProfileInformation({ className = "" }: any) {
-    const { auth, locale } = usePage().props as any;
-    const user = auth.user;
+import React, { useMemo, useState } from "react";
 
-    const isGu = locale === "gu";
-    const roleName = user?.role?.name ?? (isGu ? "વપરાશકર્તા" : "User");
+import defaultAvatar from "../../../../images/users/user-dummy-img.jpg";
 
-    /*
-    |--------------------------------------------------------------------------
-    | Translations
-    |--------------------------------------------------------------------------
-    */
+interface PageProps {
+    locale?: string;
+    translations?: Record<string, any>;
+    auth?: {
+        user?: {
+            name?: string | Record<string, string> | null;
+            email?: string;
+            profile?: string | null;
+            role?: {
+                name?: string | Record<string, string> | null;
+            };
+        };
+    };
+}
 
-    const getName = (name: any, locale: string) => {
-        if (!name) {
-            return "";
-        }
+interface UpdateProfileInformationProps {
+    className?: string;
+}
 
-        // Already a normal string
-        if (typeof name === "string") {
-            try {
-                const parsed = JSON.parse(name);
+type TranslationFunction = (
+    key: string,
+    replacements?: Record<string, string | number>,
+) => string;
 
-                if (typeof parsed === "object" && parsed !== null) {
-                    return parsed[locale] || parsed.en || "";
-                }
+const createTranslator = (
+    translations: Record<string, any>,
+): TranslationFunction => {
+    return (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ): string => {
+        let text = translations[key] ?? key;
 
-                return name;
-            } catch {
-                return name;
-            }
-        }
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = String(text).replace(
+                new RegExp(`:${name}`, "g"),
+                String(value),
+            );
+        });
 
-        // JSON/object translation
-        if (typeof name === "object") {
-            return name[locale] || name.en || "";
-        }
+        return text;
+    };
+};
 
+/**
+ * Get translated value from a multilingual database field.
+ */
+const tValue = (
+    value: string | Record<string, string> | null | undefined,
+    locale: string,
+): string => {
+    if (value == null) {
         return "";
-    };
+    }
 
-    // Optional role name translations
-    const roleLabels: Record<string, { en: string; gu: string }> = {
-        Admin: { en: "Admin", gu: "એડમિન" },
-        Founder: { en: "Founder", gu: "સ્થાપક" },
-        User: { en: "User", gu: "વપરાશકર્તા" },
-        Editor: { en: "Editor", gu: "સંપાદક" },
-        Manager: { en: "Manager", gu: "મેનેજર" },
-    };
+    if (typeof value === "string") {
+        try {
+            const parsed = JSON.parse(value);
 
-    const displayRole =
-        roleLabels[roleName]?.[isGu ? "gu" : "en"] ?? roleName;
+            if (typeof parsed === "object" && parsed !== null) {
+                return (
+                    parsed[locale] ??
+                    parsed["en"] ??
+                    Object.values(parsed)[0] ??
+                    ""
+                );
+            }
 
-    const labels = {
-        en: {
-            profileInformation: "Profile Information",
-            description: `Update your account information and ${displayRole.toLowerCase()} logo.`,
-            name: "Name",
-            email: "Email",
-            adminLogo: `${displayRole} Logo`,
-            recommended: "Recommended: PNG, JPG or WEBP. Maximum size: 2MB.",
-            saveChanges: "Save Changes",
-            saving: "Saving...",
-            updated: "Profile updated successfully.",
-        },
+            return value;
+        } catch {
+            return value;
+        }
+    }
 
-        gu: {
-            profileInformation: "પ્રોફાઇલ માહિતી",
-            description: `તમારી એકાઉન્ટ માહિતી અને ${displayRole} લોગો અપડેટ કરો.`,
-            name: "નામ",
-            email: "ઇમેઇલ",
-            adminLogo: `${displayRole} લોગો`,
-            recommended: "ભલામણ: PNG, JPG અથવા WEBP. મહત્તમ સાઇઝ: 2MB.",
-            saveChanges: "ફેરફારો સાચવો",
-            saving: "સાચવી રહ્યા છીએ...",
-            updated: "પ્રોફાઇલ સફળતાપૂર્વક અપડેટ થઈ ગઈ છે.",
-        },
-    };
+    return value[locale] ?? value["en"] ?? Object.values(value)[0] ?? "";
+};
 
-    const t = labels[isGu ? "gu" : "en"];
+export default function UpdateProfileInformation({
+    className = "",
+}: UpdateProfileInformationProps) {
+    const { auth, locale, translations = {} } = usePage<PageProps>().props;
 
-    /*
-    |--------------------------------------------------------------------------
-    | Logo
-    |--------------------------------------------------------------------------
-    */
+    const user = auth?.user;
+
+    const currentLocale = locale || "gu";
+
+    const tr = useMemo(() => createTranslator(translations), [translations]);
+
+    const roleName = tValue(user?.role?.name, currentLocale);
+
+    const displayRole = roleName || tr("user");
 
     const [preview, setPreview] = useState(
-        user.profile ? `/storage/${user.profile}` : defaultLogo,
+        user?.profile ? `/storage/${user.profile}` : defaultAvatar,
     );
-
-    /*
-    |--------------------------------------------------------------------------
-    | Form
-    |--------------------------------------------------------------------------
-    */
 
     const { data, setData, post, errors, processing, recentlySuccessful } =
         useForm<{
@@ -107,17 +110,14 @@ export default function UpdateProfileInformation({ className = "" }: any) {
             email: string;
             logo: File | null;
         }>({
-            name: getName(user.name, locale),
-            email: user.email || "",
+            name: tValue(user?.name, currentLocale),
+            email: user?.email || "",
             logo: null,
         });
 
-    /*
-    |--------------------------------------------------------------------------
-    | Logo Change
-    |--------------------------------------------------------------------------
-    */
-
+    /**
+     * Logo Change
+     */
     const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
 
@@ -138,13 +138,10 @@ export default function UpdateProfileInformation({ className = "" }: any) {
         reader.readAsDataURL(file);
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | Submit
-    |--------------------------------------------------------------------------
-    */
-
-    const submit = (e: React.FormEvent) => {
+    /**
+     * Submit
+     */
+    const submit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
 
         post(route("profile.update"), {
@@ -155,21 +152,25 @@ export default function UpdateProfileInformation({ className = "" }: any) {
 
     return (
         <React.Fragment>
-            <Col>
+            <Col className={className}>
                 {/* Page Title */}
-                <h4 className="mb-3">{t.profileInformation}</h4>
+                <h4 className="mb-3">{tr("profile_information")}</h4>
 
                 <Card>
                     <Card.Body>
                         {/* Description */}
-                        <p className="text-muted mb-4">{t.description}</p>
+                        <p className="text-muted mb-4">
+                            {tr("profile_information_description", {
+                                role: displayRole.toLowerCase(),
+                            })}
+                        </p>
 
                         <Form onSubmit={submit}>
                             <Row>
                                 {/* Name */}
                                 <Col lg={6} className="mb-3">
                                     <Form.Label htmlFor="name">
-                                        {t.name}
+                                        {tr("name")}
                                     </Form.Label>
 
                                     <Form.Control
@@ -193,7 +194,7 @@ export default function UpdateProfileInformation({ className = "" }: any) {
                                 {/* Email */}
                                 <Col lg={6} className="mb-3">
                                     <Form.Label htmlFor="email">
-                                        {t.email}
+                                        {tr("email")}
                                     </Form.Label>
 
                                     <Form.Control
@@ -215,10 +216,14 @@ export default function UpdateProfileInformation({ className = "" }: any) {
 
                                 {/* Role Logo */}
                                 <Col lg={12} className="mb-4">
-                                    <Form.Label>{t.adminLogo}</Form.Label>
+                                    <Form.Label>
+                                        {tr("role_logo", {
+                                            role: displayRole,
+                                        })}
+                                    </Form.Label>
 
                                     <div className="d-flex align-items-center gap-3">
-                                        {/* Small Logo Preview */}
+                                        {/* Logo Preview */}
                                         <div
                                             className="border rounded bg-light d-flex align-items-center justify-content-center"
                                             style={{
@@ -230,7 +235,9 @@ export default function UpdateProfileInformation({ className = "" }: any) {
                                         >
                                             <img
                                                 src={preview}
-                                                alt={t.adminLogo}
+                                                alt={tr("role_logo", {
+                                                    role: displayRole,
+                                                })}
                                                 style={{
                                                     maxWidth: "65px",
                                                     maxHeight: "40px",
@@ -239,7 +246,7 @@ export default function UpdateProfileInformation({ className = "" }: any) {
                                                 }}
                                                 onError={(e) => {
                                                     e.currentTarget.src =
-                                                        defaultLogo;
+                                                        defaultAvatar;
                                                 }}
                                             />
                                         </div>
@@ -256,7 +263,7 @@ export default function UpdateProfileInformation({ className = "" }: any) {
                                             />
 
                                             <small className="text-muted d-block mt-2">
-                                                {t.recommended}
+                                                {tr("profile_logo_recommended")}
                                             </small>
 
                                             <InputError
@@ -281,16 +288,17 @@ export default function UpdateProfileInformation({ className = "" }: any) {
                                                 className="spinner-border spinner-border-sm me-2"
                                                 role="status"
                                             />
-                                            {t.saving}
+
+                                            {tr("saving")}
                                         </>
                                     ) : (
-                                        t.saveChanges
+                                        tr("save_changes")
                                     )}
                                 </Button>
 
                                 {recentlySuccessful && (
                                     <span className="text-success">
-                                        {t.updated}
+                                        {tr("profile_updated_successfully")}
                                     </span>
                                 )}
                             </div>

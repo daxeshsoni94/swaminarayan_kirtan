@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Category\DynamicCategoryController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\Auth\RolesController;
 use App\Http\Controllers\Category\AdjectiveController;
@@ -7,41 +8,39 @@ use App\Http\Controllers\Category\BhavController;
 use App\Http\Controllers\Category\BookController;
 use App\Http\Controllers\Category\CategoryController;
 use App\Http\Controllers\Category\CreatorController;
+use App\Http\Controllers\Category\CustomCategoryController;
 use App\Http\Controllers\Category\EventController;
 use App\Http\Controllers\Category\NameController;
 use App\Http\Controllers\Category\PlaceController;
 use App\Http\Controllers\Dashboard\DashboardController;
-use App\Http\Controllers\languageController;
+use App\Http\Controllers\KirtanRoutesController;
+use App\Http\Controllers\LanguageController;
 use App\Http\Controllers\Pad\PadController;
 use App\Http\Controllers\Pagecontroller;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\User\Usercontroller;
-use App\Http\Controllers\VelzonRoutesController;
 use App\Models\Language;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
-/*
-|--------------------------------------------------------------------------
-| Force Logout
-|--------------------------------------------------------------------------
-*/
-
-Route::get('/force-logout', function () {
-    Auth::logout();
-    request()->session()->invalidate();
-    request()->session()->regenerateToken();
-    return redirect('/login');
-})->name('force.logout');
 
 
+Route::get('/debug-mail-config', function () {
+    return [
+        'mail_host' => config('mail.mailers.smtp.host'),
+        'mail_username' => config('mail.mailers.smtp.username'),
+        'from_address' => config('mail.from.address'),
+        'app_name' => config('app.name'),
+    ];
+});
 /*
 |--------------------------------------------------------------------------
 | Authenticated Routes (Profile + Velzon demo pages)
 |--------------------------------------------------------------------------
 */
+
 Route::middleware('auth')->group(function () {
 
     Route::redirect('/', '/admin/dashboard');
@@ -51,7 +50,7 @@ Route::middleware('auth')->group(function () {
     Route::delete('/profile-destroy', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
     // Velzon demo pages (keep if you still need them)
-    Route::controller(VelzonRoutesController::class)->group(function () {
+    Route::controller(KirtanRoutesController::class)->group(function () {
         Route::get('/admin/kirtans', 'kirtan_type');
         Route::get("/auth-logout-basic", "auth_logout_basic");
         Route::get("/auth-logout-cover", "auth_logout_cover");
@@ -71,18 +70,6 @@ Route::middleware('auth')->group(function () {
     });
 });
 
-// Route::middleware(['auth', 'role.prefix'])
-//     ->prefix('{role}')
-//     ->group(function () {
-
-//         Route::get('/role-test', function (Request $request) {
-//             return response()->json([
-//                 'middleware' => 'RolePrefix working',
-//                 'user_role' => $request->user()->role?->name,
-//                 'url_role' => $request->route('role'),
-//             ]);
-//         });
-//     });
 /*
 |--------------------------------------------------------------------------
 | ADMIN PANEL  →  all routes start with /admin
@@ -97,8 +84,8 @@ Route::middleware(['auth', 'role.prefix'])
         Route::controller(DashboardController::class)
             ->middleware('permission:dashboard,view')
             ->group(function () {
-                Route::get('/dashboard', 'index')->name('dashboard.index');
-            });
+            Route::get('/dashboard', 'index')->name('dashboard.index');
+        });
 
         // ── PADS ────────────────────────────────────────────────────
         Route::controller(PadController::class)->middleware('permission:pads,view')->group(function () {
@@ -126,162 +113,47 @@ Route::middleware(['auth', 'role.prefix'])
             ->name('pads.toggle-favorite');
 
 
-        // ── CATEGORIES ──────────────────────────────────────────────
-        Route::controller(CategoryController::class)->middleware('permission:categories,view')->group(function () {
-            Route::get('/categories/creator-show', 'creatorForm')->name('creators.edit');
-        });
+        Route::prefix('categories/{type}')
+            ->where(['type' => implode('|', array_keys(config('category_types')))])
+            ->name('category.')
+            ->group(function () {
 
-        Route::controller(CategoryController::class)->middleware('permission:categories,create')->group(function () {
-            Route::get('/create-category', 'CreateCategory')->name('category.create');
-            Route::post('/category-store', 'store')->name('categories.store');
-        });
+                Route::get('/', [DynamicCategoryController::class, 'list'])
+                    ->middleware('permission:categories,view')
+                    ->name('list');
 
-        // Creator
-        Route::controller(CreatorController::class)->middleware('permission:categories,view')->group(function () {
-            Route::get('/categories/creator-list', 'creatorList')->name('category.creatorlist');
-            Route::get('/categories/creator-show', 'creatorForm')->name('creators.creatorform');
-            Route::get('/categories/{category}/creator-pads-show', 'creatorPadsShow')->name('creators.pads.show');
-        });
+                Route::get('/create', [DynamicCategoryController::class, 'form'])
+                    ->middleware('permission:categories,create')
+                    ->name('create');
 
-        Route::controller(CreatorController::class)->middleware('permission:categories,create')->group(function () {
-            Route::post('/categories/creators-store', 'creatorStore')->name('creators.store');
-        });
+                Route::post('/', [DynamicCategoryController::class, 'store'])
+                    ->middleware('permission:categories,create')
+                    ->name('store');
 
-        Route::controller(CreatorController::class)->middleware('permission:categories,edit')->group(function () {
-            Route::get('/categories/creators/{category}/edit', 'creatorEdit')->name('creators.edit');
-            Route::put('/categories/creators/{category}', 'creatorUpdate')->name('creators.update');
-        });
+                Route::get('/{category}', [DynamicCategoryController::class, 'show'])
+                    ->middleware('permission:categories,view')
+                    ->name('show');
 
-        Route::controller(CreatorController::class)->middleware('permission:categories,delete')->group(function () {
-            Route::delete('/creators/{id}', 'destroy')->name('creator.destroy');
-            Route::post('/creators/bulk-destroy', 'bulkDestroy')->name('creators.bulk-destroy');
-        });
+                Route::get('/{category}/edit', [DynamicCategoryController::class, 'edit'])
+                    ->middleware('permission:categories,edit')
+                    ->name('edit');
 
-        // Event
-        Route::controller(EventController::class)->middleware('permission:categories,view')->group(function () {
-            Route::get('/categories/event-list', 'eventList')->name('category.eventlist');
-            Route::get('/categories/event-show', 'eventForm')->name('category.eventform');
-            Route::get('/categories/{event}/creator-event-show', 'eventPadsShow')->name('events.pads.show');
-        });
+                Route::put('/{category}', [DynamicCategoryController::class, 'update'])
+                    ->middleware('permission:categories,edit')
+                    ->name('update');
 
-        Route::controller(EventController::class)->middleware('permission:categories,create')->group(function () {
-            Route::post('/categories/events', 'eventStore')->name('category.eventstore');
-        });
+                Route::get('/{category}/pads', [DynamicCategoryController::class, 'padsShow'])
+                    ->middleware('permission:categories,view')
+                    ->name('pads');
 
-        Route::controller(EventController::class)->middleware('permission:categories,edit')->group(function () {
-            Route::get('/categories/event/{event}/edit', 'eventEdit')->name('event.edit');
-            Route::put('/categories/events/{event}', 'eventUpdate')->name('event.update');
-        });
+                Route::delete('/{id}', [DynamicCategoryController::class, 'destroy'])
+                    ->middleware('permission:categories,delete')
+                    ->name('destroy');
 
-        Route::controller(EventController::class)->middleware('permission:categories,delete')->group(function () {
-            Route::delete('/events/{id}', 'eventDestroy')->name('event.destroy');
-            Route::post('/events/bulk-destroy', 'bulkDestroy')->name('events.bulk-destroy');
-        });
-
-        // Place
-        Route::controller(PlaceController::class)->middleware('permission:categories,view')->group(function () {
-            Route::get('/categories/place-list', 'placeList')->name('category.placelist');
-            Route::get('/categories/place-show', 'placeForm')->name('category.placeform');
-            Route::get('/categories/{place}/place-show', 'placePadsShow')->name('places.pads.show');
-        });
-
-        Route::controller(PlaceController::class)->middleware('permission:categories,create')->group(function () {
-            Route::post('/categories/places', 'placeStore')->name('category.placestore');
-        });
-
-        Route::controller(PlaceController::class)->middleware('permission:categories,edit')->group(function () {
-            Route::get('/categories/place/{place}/edit', 'placeEdit')->name('place.edit');
-            Route::put('/categories/place/{place}', 'placeUpdate')->name('place.update');
-        });
-
-        Route::controller(PlaceController::class)->middleware('permission:categories,delete')->group(function () {
-            Route::delete('/places/{id}', 'placeDestroy')->name('place.destroy');
-            Route::post('/places/bulk-destroy', 'bulkDestroy')->name('places.bulk-destroy');
-        });
-
-        // Adjective
-        Route::controller(AdjectiveController::class)->middleware('permission:categories,view')->group(function () {
-            Route::get('/categories/adjective-list', 'adjectiveList')->name('category.adjectivelist');
-            Route::get('/categories/adjective-show', 'adjectiveForm')->name('category.adjectiveform');
-            Route::get('/categories/{adjective}/adjective-show', 'adjectivePadsShow')->name('adjectives.pads.show');
-        });
-
-        Route::controller(AdjectiveController::class)->middleware('permission:categories,create')->group(function () {
-            Route::post('/categories/adjective', 'adjectiveStore')->name('category.adjectivestore');
-        });
-
-        Route::controller(AdjectiveController::class)->middleware('permission:categories,edit')->group(function () {
-            Route::get('/categories/adjective/{adjective}/edit', 'adjectiveEdit')->name('adjectives.edit');
-            Route::put('/categories/adjective/{adjective}', 'adjectiveUpdate')->name('adjectives.update');
-        });
-
-        Route::controller(AdjectiveController::class)->middleware('permission:categories,delete')->group(function () {
-            Route::delete('/categories/adjective-destroy/{adjective}', 'adjectiveDestroy')->name('adjectives.destroy');
-            Route::post('/adjectives/bulk-destroy', 'bulkDestroy')->name('adjectives.bulk-destroy');
-        });
-
-        // Name
-        Route::controller(NameController::class)->middleware('permission:categories,view')->group(function () {
-            Route::get('/categories/name-list', 'nameList')->name('category.namelist');
-            Route::get('/categories/name-show', 'nameForm')->name('category.nameform');
-            Route::get('/categories/{name}/name-show', 'namePadsShow')->name('names.pads.show');
-        });
-
-        Route::controller(NameController::class)->middleware('permission:categories,create')->group(function () {
-            Route::post('/categories/name', 'nameStore')->name('category.namestore');
-        });
-
-        Route::controller(NameController::class)->middleware('permission:categories,edit')->group(function () {
-            Route::get('/categories/name/{name}/edit', 'nameEdit')->name('names.edit');
-            Route::put('/categories/name/{name}', 'nameUpdate')->name('names.update');
-        });
-
-        Route::controller(NameController::class)->middleware('permission:categories,delete')->group(function () {
-            Route::delete('/names/{id}', 'nameDestroy')->name('name.destroy');
-            Route::post('/names/bulk-destroy', 'bulkDestroy')->name('names.bulk-destroy');
-        });
-
-        // Book
-        Route::controller(BookController::class)->middleware('permission:categories,view')->group(function () {
-            Route::get('/categories/book-list', 'bookList')->name('category.booklist');
-            Route::get('/categories/book-show', 'bookForm')->name('category.bookform');
-            Route::get('/categories/{book}/book-show', 'bookPadsShow')->name('categories.books.pads.show');
-        });
-
-        Route::controller(BookController::class)->middleware('permission:categories,create')->group(function () {
-            Route::post('/categories/book-store', 'bookStore')->name('category.bookstore');
-        });
-
-        Route::controller(BookController::class)->middleware('permission:categories,edit')->group(function () {
-            Route::get('/categories/book/{book}/edit', 'bookEdit')->name('category.bookedit');
-            Route::put('/categories/book/{book}', 'bookUpdate')->name('category.bookupdate');
-        });
-
-        Route::controller(BookController::class)->middleware('permission:categories,delete')->group(function () {
-            Route::delete('/books/{id}', 'bookDestroy')->name('book.destroy');
-            Route::post('/books/bulk-destroy', 'bulkDestroy')->name('books.bulk-destroy');
-        });
-
-        // Bhav
-        Route::controller(BhavController::class)->middleware('permission:categories,view')->group(function () {
-            Route::get('/categories/bhav-list', 'bhavList')->name('category.bhavlist');
-            Route::get('/categories/bhav-show', 'bhavForm')->name('category.bhavform');
-            Route::get('/categories/{bhav}/bhav-show', 'bhavPadsShow')->name('categories.bhavs.pads.show');
-        });
-
-        Route::controller(BhavController::class)->middleware('permission:categories,create')->group(function () {
-            Route::post('/categories/bhav-store', 'bhavStore')->name('category.bhavstore');
-        });
-
-        Route::controller(BhavController::class)->middleware('permission:categories,edit')->group(function () {
-            Route::get('/categories/bhav/{bhav}/edit', 'bhavEdit')->name('category.bhavedit');
-            Route::put('/categories/bhav/{bhav}', 'bhavUpdate')->name('category.bhavupdate');
-        });
-
-        Route::controller(BhavController::class)->middleware('permission:categories,delete')->group(function () {
-            Route::delete('/bhavs/{id}', 'bhavDestroy')->name('bhav.destroy');
-            Route::post('/bhavs/bulk-destroy', 'bulkDestroy')->name('bhavs.bulk-destroy');
-        });
+                Route::post('/bulk-destroy', [DynamicCategoryController::class, 'bulkDestroy'])
+                    ->middleware('permission:categories,delete')
+                    ->name('bulk-destroy');
+            });
 
 
         // ── USERS ───────────────────────────────────────────────────
@@ -332,21 +204,21 @@ Route::middleware(['auth', 'role.prefix'])
 
 
         // ── LANGUAGES ───────────────────────────────────────────────
-        Route::controller(languageController::class)->middleware('permission:languages,view')->group(function () {
+        Route::controller(LanguageController::class)->middleware('permission:languages,view')->group(function () {
             Route::get('/languages', 'index')->name('languages.list');
         });
 
-        Route::controller(languageController::class)->middleware('permission:languages,create')->group(function () {
+        Route::controller(LanguageController::class)->middleware('permission:languages,create')->group(function () {
             Route::get('/languages/create', 'create')->name('languages.create');
             Route::post('/languages', 'store')->name('languages.store');
         });
 
-        Route::controller(languageController::class)->middleware('permission:languages,edit')->group(function () {
+        Route::controller(LanguageController::class)->middleware('permission:languages,edit')->group(function () {
             Route::get('/languages/{language}/edit', 'edit')->name('languages.edit');
             Route::put('/languages/{language}', 'update')->name('languages.update');
         });
 
-        Route::controller(languageController::class)->middleware('permission:languages,delete')->group(function () {
+        Route::controller(LanguageController::class)->middleware('permission:languages,delete')->group(function () {
             Route::delete('/languages/{language}', 'destroy')->name('languages.destroy');
             Route::post('/languages/bulk-destroy', 'bulkDestroy')->name('languages.bulk-destroy');
         });
@@ -395,38 +267,34 @@ Route::middleware(['auth', 'role.prefix'])
             Route::delete('/contacts/{contact}', 'destroy')->name('contacts.destroy');
             Route::post('/contacts/bulk-destroy', 'bulkDestroy')->name('contacts.bulk-destroy');
         });
+        // ── SETTINGS ────────────────────────────────────────────────
+        Route::controller(SettingController::class)->middleware('permission:settings,view')->group(function () {
+            Route::get('/settings', 'index')->name('settings.index');
+        });
 
-
-        // ── Locale switcher ─────────────────────────────────────────
-        Route::post('/locale', function (Request $request) {
-            $locale = $request->input('locale');
-            if (!in_array($locale, ['en', 'gu'])) {
-                return back();
-            }
-            session()->put('locale', $locale);
-            session()->save();
-            app()->setLocale($locale);
-
-            if (Auth::check()) {
-                $language = Language::where('code', $locale)->first();
-                if ($language) {
-                    Auth::user()->update(['language_id' => $language->id]);
-                }
-            }
-            return back();
-        })->name('locale.change');
+        Route::controller(SettingController::class)->middleware('permission:settings,edit')->group(function () {
+            Route::post('/settings', 'update')->name('settings.update');
+        });
     });
 
+Route::post('/locale', [languageController::class, 'changeLocale'])
+    ->name('locale.change');
 
 /*
 |--------------------------------------------------------------------------
 | Settings (extra admin middleware)
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth', 'admin'])->prefix('admin')->group(function () {
-    Route::get('/settings', [SettingController::class, 'index'])->name('admin.settings');
-    Route::post('/settings', [SettingController::class, 'update'])->name('admin.settings.update');
-});
 
+Route::get('/settings/layout', [SettingController::class, 'getLayoutSettings'])
+    ->name('settings.layout.get');
+
+Route::post('/settings/layout', [SettingController::class, 'updateLayout'])
+    ->middleware(['auth'])
+    ->name('settings.layout.update');
+Route::get('/link-storage', function () {
+    \Illuminate\Support\Facades\Artisan::call('storage:link');
+    return 'Storage linked successfully!';
+});
 
 require __DIR__ . '/auth.php';

@@ -11,20 +11,18 @@ import { usePermission } from "../../hooks/usePermission";
 
 const HorizontalLayout = (props: any) => {
     const { can } = usePermission();
-    const { locale, menuPages = [] } = usePage().props as {
+    const { locale, menuPages = [], translations = {} } = usePage().props as {
         locale: string;
         menuPages?: { id: number; title: string; slug: string }[];
+        translations?: Record<string, string>;
     };
 
-    const t = {
-        More: { en: "More", gu: "વધારે" },
-    };
+    const tr = (key: string) => translations[key] ?? key;
 
-    // Helper to get the correct language
-    const tr = (key: string) => {
-        return t[key]?.[locale] ?? t[key]?.en ?? key;
-    };
+
+
     const [isMoreMenu, setIsMoreMenu] = useState<boolean>(false);
+    const [categorySearch, setCategorySearch] = useState("");
     const navData = navdata().props.children ?? [];
 
     let menuItems: any[] = [];
@@ -82,7 +80,7 @@ const HorizontalLayout = (props: any) => {
         });
     }
 
-    const path = window.location.pathname;
+    const path = window.location.pathname + window.location.search;
 
     useEffect(() => {
         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -94,7 +92,30 @@ const HorizontalLayout = (props: any) => {
             let itemsArray = [...items]; // converts NodeList to Array
             removeActivation(itemsArray);
             let matchingMenuItem = itemsArray.find((x) => {
-                return x.pathname === pathName;
+                try {
+                    const current = new URL(window.location.href);
+                    const target = new URL(x.href, window.location.origin);
+
+                    if (current.pathname !== target.pathname) {
+                        return false;
+                    }
+
+                    const currentType = (
+                        current.searchParams.get("custom_type") || ""
+                    )
+                        .trim()
+                        .toLowerCase();
+                    const targetType = (
+                        target.searchParams.get("custom_type") || ""
+                    )
+                        .trim()
+                        .toLowerCase();
+
+                    // Exact match on custom_type (both empty = generic Custom Category)
+                    return currentType === targetType;
+                } catch {
+                    return x.pathname === pathName;
+                }
             });
             if (matchingMenuItem) {
                 activateParentDropdown(matchingMenuItem);
@@ -286,8 +307,59 @@ const HorizontalLayout = (props: any) => {
                                             </React.Fragment>
                                         ) : (
                                             <ul className="nav nav-sm flex-column test">
+                                                {item.id === "categories" && (
+                                                    <li className="nav-item px-3 py-2">
+                                                        <input
+                                                            type="text"
+                                                            className="form-control form-control-sm"
+                                                            placeholder={tr("Search") + "..."}
+                                                            value={categorySearch}
+                                                            onChange={(e) => setCategorySearch(e.target.value)}
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        />
+                                                    </li>
+                                                )}
+                                                <div style={item.id === "categories" ? { maxHeight: "280px", overflowY: "auto" } : {}}>
                                                 {item.subItems &&
-                                                    (item.subItems || []).map(
+                                                    (item.subItems || [])
+                                                        .filter((subItem: any) => {
+                                                            if (item.id !== "categories" || !categorySearch) return true;
+
+                                                            const phoneticMap: Record<string, string[]> = {
+                                                                "રચયિતા": ["rachyita", "rachayita", "creator", "rachaita"],
+                                                                "પ્રસંગ": ["prasang", "event"],
+                                                                "સ્થળ": ["sthal", "place"],
+                                                                "વિશેષણ": ["visheshan", "adjective"],
+                                                                "નામ": ["naam", "name"],
+                                                                "પુસ્તક": ["pustak", "book"],
+                                                                "ભાવ": ["bhav"],
+                                                                "કીર્તન પ્રકાર": ["kirtan prakar", "kirtan type", "type"],
+                                                                "વિવેચન": ["vivechan"],
+                                                                "ઉત્પત્તિ": ["utpatti", "origin"],
+                                                                "કસ્ટમ કેટેગરી": ["custom category", "custom"],
+                                                                "કસ્ટમ": ["custom"]
+                                                            };
+
+                                                            const label = String(props.t(subItem.label) || "");
+                                                            const labelStr = label.toLowerCase();
+                                                            const rawLabelStr = String(subItem.label || "").toLowerCase();
+                                                            const englishLabelStr = String(subItem.englishLabel || "").toLowerCase();
+                                                            const searchLower = categorySearch.toLowerCase();
+                                                            
+                                                            if (labelStr.includes(searchLower) || rawLabelStr.includes(searchLower) || englishLabelStr.includes(searchLower)) return true;
+                                                            
+                                                            // Check phonetic mapping fallback
+                                                            for (const [gu, phonetics] of Object.entries(phoneticMap)) {
+                                                                if (labelStr.includes(gu) || rawLabelStr.includes(gu)) {
+                                                                    if (phonetics.some(p => p.includes(searchLower))) {
+                                                                        return true;
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            return false;
+                                                        })
+                                                        .map(
                                                         (
                                                             subItem: any,
                                                             key: number,
@@ -435,6 +507,7 @@ const HorizontalLayout = (props: any) => {
                                                             </React.Fragment>
                                                         ),
                                                     )}
+                                                </div>
                                             </ul>
                                         )}
                                     </Collapse>

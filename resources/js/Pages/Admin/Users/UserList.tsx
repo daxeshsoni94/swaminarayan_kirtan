@@ -4,8 +4,6 @@ import TableContainer from "../../../Components/Common/TableContainer";
 import { Head, router, usePage } from "@inertiajs/react";
 import BreadCrumb from "../../../Components/Common/BreadCrumb";
 import DeleteModal from "../../../Components/Common/DeleteModal";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
 import Layout from "../../../Layouts";
 import { gujaratiNumber } from "../../../utils/number";
 
@@ -17,8 +15,7 @@ interface Role {
 }
 
 interface UserName {
-    en?: string;
-    gu?: string;
+    [key: string]: string | undefined;
 }
 
 interface User {
@@ -49,68 +46,37 @@ interface Props {
     };
 }
 
-// ── Resolve translation object → string ───────────────────────────────────────
-const t = (v: any, locale = "en"): string => {
-    if (v == null) return "";
-    if (typeof v === "string") return v;
-    if (typeof v === "object") {
-        return v[locale] ?? v.en ?? v.gu ?? Object.values(v)[0] ?? "";
+// ── Resolve translation object → string (for DB multilingual values) ──────────
+const tValue = (v: any, locale = "en"): string => {
+    if (v == null) {
+        return "";
     }
+
+    if (typeof v === "string") {
+        return v;
+    }
+
+    if (typeof v === "object") {
+        const currentValue = v[locale];
+
+        if (typeof currentValue === "string" && currentValue.trim() !== "") {
+            return currentValue;
+        }
+
+        const fallback = Object.values(v).find(
+            (value) => typeof value === "string" && value.trim() !== "",
+        );
+
+        return typeof fallback === "string" ? fallback : "";
+    }
+
     return String(v);
 };
 
-// ─── Translations ─────────────────────────────────────────────────────────────
-
-const translations = {
-    en: {
-        pageTitle: "Users",
-        listTitle: "Users List",
-        create: "Create User",
-        searchPlaceholder: "Search name, mobile number or email…",
-        noData: "No users found.",
-        showing: "Showing",
-        of: "of",
-        results: "results",
-        view: "View",
-        edit: "Edit",
-        delete: "Delete",
-        deleteSuccess: "User deleted successfully",
-        bulkDeleteSuccess: "Users deleted successfully.",
-        bulkDeleteFail: "Failed to delete users.",
-        selectAtLeastOne: "Select at least one item.",
-        active: "Active",
-        blocked: "Block",
-    },
-    gu: {
-        pageTitle: "વપરાશકર્તાઓ",
-        listTitle: "વપરાશકર્તા યાદી",
-        create: "વપરાશકર્તા બનાવો",
-        searchPlaceholder: "નામ, મોબાઇલ નંબર અથવા ઈમેઇલ શોધો…",
-        noData: "કોઈ વપરાશકર્તા મળ્યા નથી.",
-        showing: "બતાવી રહ્યા છીએ",
-        of: "માંથી",
-        results: "પરિણામો",
-        view: "જુઓ",
-        edit: "ફેરફાર કરો",
-        delete: "કાઢી નાખો",
-        deleteSuccess: "વપરાશકર્તા સફળતાપૂર્વક કાઢી નાખ્યો",
-        bulkDeleteSuccess: "વપરાશકર્તાઓ સફળતાપૂર્વક કાઢી નાખ્યા.",
-        bulkDeleteFail: "વપરાશકર્તાઓ કાઢી નાખવામાં નિષ્ફળતા.",
-        selectAtLeastOne: "ઓછામાં ઓછું એક આઇટમ પસંદ કરો.",
-        active: "પ્રકાશિત",
-        blocked: "બ્લોક",
-    },
-};
-
 // ─── Status Badge ─────────────────────────────────────────────────────────────
-const StatusBadge = ({
-    status,
-    tr,
-}: {
-    status: string;
-    tr: (typeof translations)["en"];
-}) => {
+const StatusBadge = ({ status, t }: { status: string; t: any }) => {
     const isActive = status === "unblocked";
+
     return (
         <span
             className={`badge ${
@@ -119,7 +85,7 @@ const StatusBadge = ({
                     : "bg-danger-subtle text-danger"
             }`}
         >
-            {isActive ? tr.active : tr.blocked}
+            {isActive ? t.status_active : t.status_blocked}
         </span>
     );
 };
@@ -127,14 +93,14 @@ const StatusBadge = ({
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const UserList: React.FC<Props> = ({ users, filters }) => {
-    const page = usePage().props as { locale?: string };
-    const locale = (page.locale === "gu" ? "gu" : "en") as "en" | "gu";
-    const isGu = locale === "gu";
-    const { auth } = usePage().props as any;
+    const page = usePage().props as any;
+    const { auth, translations = {}, locale: pageLocale } = page;
+    const locale = pageLocale || "gu";
+    const t = translations;
+
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
-    const tr = translations[locale];
 
     const [data, setData] = useState<User[]>(users?.data ?? []);
 
@@ -154,42 +120,23 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
         if (users?.data) setData(users.data);
     }, [users]);
 
-    const labels = {
-        en: {
-            id: "ID",
-            name: "Name",
-            email: "Email",
-            phone: "Phone",
-            status: "Status",
-            createdAt: "Created At",
-            actions: "Actions",
-        },
-        gu: {
-            id: "ક્રમ",
-            name: "નામ",
-            email: "ઈમેઈલ",
-            phone: "ફોન",
-            status: "સ્થિતિ",
-            createdAt: "બનાવ્યાની તારીખ",
-            actions: "ક્રિયાઓ",
-        },
-    }[locale];
-
     const handleEdit = (row: User) => {
         router.visit(
             route("role.users.edit", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 user: row.id,
             }),
         );
     };
+
     const handleCreate = () => {
         router.visit(
             route("role.users.form", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
         );
     };
+
     const onClickDelete = (row: User) => {
         setItem(row);
         setDeleteModal(true);
@@ -200,13 +147,14 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
 
         router.delete(
             route("role.users.destroy", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 user: item.id,
             }),
             {
+                preserveScroll: true,
                 onSuccess: () => {
                     setDeleteModal(false);
-                    toast.success(tr.deleteSuccess);
+                    // toast.success(t.user_deleted_success);
                 },
             },
         );
@@ -217,7 +165,7 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
 
         router.get(
             route("role.users.list", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
             { search: value || undefined },
             {
@@ -227,6 +175,7 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
             },
         );
     };
+
     // Multi-select
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [isMultiDeleteButton, setIsMultiDeleteButton] = useState(false);
@@ -247,22 +196,23 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
 
     const deleteMultiple = () => {
         if (!selectedIds.length) {
-            toast.warning(tr.selectAtLeastOne);
+            // toast.warning(t.select_at_least_one);
             return;
         }
         router.post(
             route("role.users.bulk-destroy", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
             { ids: selectedIds },
             {
                 preserveScroll: true,
                 onSuccess: () => {
-                    toast.success(tr.bulkDeleteSuccess);
+                    // toast.success(t.users_deleted_success);
                     setSelectedIds([]);
                     setIsMultiDeleteButton(false);
+                    setDeleteModalMulti(false);
                 },
-                onError: () => toast.error(tr.bulkDeleteFail),
+                // onError: () => toast.error(t.users_delete_failed),
             },
         );
     };
@@ -270,6 +220,7 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
     const columns = useMemo(
         () => [
             {
+                id: "select",
                 header: (
                     <input
                         type="checkbox"
@@ -303,25 +254,29 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
                         }}
                     />
                 ),
-                id: "#",
             },
             {
-                header: labels.id,
+                id: "id",
+                header: t.id,
                 accessorKey: "id",
                 enableColumnFilter: false,
-                cell: (cellProps: any) => (
-                    <span className="fw-medium text-primary">
-                        #{gujaratiNumber(cellProps.getValue(), locale)}
-                    </span>
-                ),
+                cell: (cellProps: any) => {
+                    const rowIndex = (users.current_page - 1) * users.per_page + cellProps.row.index + 1;
+                    return (
+                        <span className="fw-medium text-primary">
+                            {gujaratiNumber(rowIndex, locale)}
+                        </span>
+                    );
+                },
             },
             {
-                header: labels.name,
+                id: "name",
+                header: t.name,
                 accessorKey: "name",
                 enableColumnFilter: false,
                 cell: (cellProps: any) => {
                     const rowUser = cellProps.row.original;
-                    const displayName = t(rowUser.name, locale);
+                    const displayName = tValue(rowUser.name, locale);
                     return (
                         <span className="text-body fw-semibold">
                             {displayName}
@@ -335,13 +290,15 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
                 },
             },
             {
-                header: labels.email,
+                id: "email",
+                header: t.email,
                 accessorKey: "email",
                 enableColumnFilter: false,
                 cell: (cellProps: any) => <span>{cellProps.getValue()}</span>,
             },
             {
-                header: labels.phone,
+                id: "phone",
+                header: t.phone,
                 accessorKey: "phone",
                 enableColumnFilter: false,
                 cell: (cellProps: any) => {
@@ -356,15 +313,17 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
                 },
             },
             {
-                header: labels.status,
+                id: "status",
+                header: t.status,
                 accessorKey: "status",
                 enableColumnFilter: false,
                 cell: (cellProps: any) => (
-                    <StatusBadge status={cellProps.getValue()} tr={tr} />
+                    <StatusBadge status={cellProps.getValue()} t={t} />
                 ),
             },
             {
-                header: labels.createdAt,
+                id: "created_at",
+                header: t.created_at,
                 accessorKey: "created_at",
                 enableColumnFilter: false,
                 cell: (cellProps: any) => {
@@ -383,7 +342,8 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
                 },
             },
             {
-                header: labels.actions,
+                id: "actions",
+                header: t.actions,
                 cell: (cellProps: any) => (
                     <div onClick={(e) => e.stopPropagation()}>
                         <Dropdown>
@@ -401,7 +361,7 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
                                         }
                                     >
                                         <i className="ri-pencil-fill align-bottom me-2 text-muted"></i>
-                                        {tr.edit}
+                                        {t.edit}
                                     </Dropdown.Item>
                                 </li>
                                 <li>
@@ -414,7 +374,7 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
                                         }
                                     >
                                         <i className="ri-delete-bin-fill align-bottom me-2 text-muted"></i>{" "}
-                                        {tr.delete}
+                                        {t.delete}
                                     </Dropdown.Item>
                                 </li>
                             </Dropdown.Menu>
@@ -423,15 +383,15 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
                 ),
             },
         ],
-        [labels, locale, tr, checkedAll, selectedIds, data],
+        [t, locale, checkedAll, selectedIds, data],
     );
 
     return (
         <React.Fragment>
-            <Head title={tr.pageTitle} />
+            <Head title={t.users} />
             <div className="page-content">
                 <Container fluid>
-                    <BreadCrumb title={tr.listTitle} pageTitle={tr.pageTitle} />
+                    <BreadCrumb title={t.users_list} pageTitle={t.users} />
 
                     <DeleteModal
                         show={deleteModal}
@@ -453,7 +413,7 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
                                 <Card.Header className="border-0">
                                     <div className="d-flex align-items-center">
                                         <h5 className="card-title mb-0 flex-grow-1">
-                                            {tr.pageTitle}
+                                            {t.users}
                                         </h5>
                                         <div className="flex-shrink-0">
                                             <div className="d-flex flex-wrap gap-2">
@@ -462,7 +422,7 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
                                                     onClick={handleCreate}
                                                 >
                                                     <i className="ri-add-line align-bottom"></i>{" "}
-                                                    {tr.create}
+                                                    {t.create_user}
                                                 </button>
                                                 {isMultiDeleteButton && (
                                                     <button
@@ -494,7 +454,7 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
                                                 theadClass=""
                                                 thClass=""
                                                 SearchPlaceholder={
-                                                    tr.searchPlaceholder
+                                                    t.user_search_placeholder
                                                 }
                                                 onSearch={handleSearch}
                                             />
@@ -502,10 +462,10 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
                                             {users.last_page > 1 && (
                                                 <div className="d-flex justify-content-between align-items-center mt-2">
                                                     <small className="text-muted">
-                                                        {tr.showing}{" "}
-                                                        {data.length} {tr.of}{" "}
+                                                        {t.showing}{" "}
+                                                        {data.length} {t.of}{" "}
                                                         {users.total}{" "}
-                                                        {tr.results}
+                                                        {t.results}
                                                     </small>
                                                     <ul className="pagination pagination-sm mb-0">
                                                         {users.links.map(
@@ -539,14 +499,10 @@ const UserList: React.FC<Props> = ({ users, filters }) => {
                                     ) : (
                                         <div className="text-center py-5">
                                             <div className="text-muted">
-                                                {tr.noData}
+                                                {t.no_users_found}
                                             </div>
                                         </div>
                                     )}
-                                    {/* <ToastContainer
-                                        closeButton={false}
-                                        limit={1}
-                                    /> */}
                                 </Card.Body>
                             </Card>
                         </Col>

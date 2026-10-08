@@ -1,272 +1,330 @@
 // resources/js/Pages/Admin/Categories/Creator/CreatorForm.jsx
 
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo } from "react";
+
 import { Card, Col, Container, Form, Row } from "react-bootstrap";
+
 import BreadCrumb from "../../../../Components/Common/BreadCrumb";
+
 import { Head, Link, useForm, usePage } from "@inertiajs/react";
+
 import Layout from "../../../../Layouts";
+
 import { toast } from "react-toastify";
 
-type Trans = { en: string; gu: string };
+// ─────────────────────────────────────────────────────────────────────────────
+// Resolve multilingual DB value → current locale string
+// Example:
+// { en: "Bramhanand Swami", gu: "બ્રહ્માનંદ સ્વામી" }
+// ─────────────────────────────────────────────────────────────────────────────
 
-interface CreatorFormProps {
-    creator?: {
-        id: number;
-        value: Trans;
-    } | null;
-}
+const tValue = (value, locale) => {
+    if (value == null) return "";
 
-const CreatorForm = ({ creator = null }: CreatorFormProps) => {
-    const page = usePage().props as {
-        locale?: string;
-        errors?: Record<string, string>;
+    if (typeof value === "string") {
+        return value;
+    }
+
+    if (typeof value === "object") {
+        return value[locale] ?? Object.values(value)[0] ?? "";
+    }
+
+    return String(value);
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Centralized translation helper
+// Supports:
+// translate("creator")
+// translate("creator_updated_success")
+// translate("pads_of_book", { name: "..." })
+// ─────────────────────────────────────────────────────────────────────────────
+
+const createTranslator = (translations) => {
+    return (key, replacements = {}) => {
+        let text = translations?.[key] ?? key;
+
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(`:${name}`, String(value));
+        });
+
+        return text;
     };
-    const locale = (page.locale === "gu" ? "gu" : "en") as "en" | "gu";
-    const isGu = locale === "gu";
-    const { auth } = usePage().props as any;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Creator Form
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CreatorForm = ({ creator = null }) => {
+    const page = usePage().props;
+
+    const { auth, translations = {}, languages = [], locale } = page;
+
+    const currentLocale = locale || "gu";
+
+    const translate = createTranslator(translations);
+    const translateError = (error?: string) => {
+        if (!error) return "";
+        return translate(error);
+    };
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Dynamic role prefix
+    // ─────────────────────────────────────────────────────────────────────────
+
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Edit / Create
+    // ─────────────────────────────────────────────────────────────────────────
+
     const isEdit = !!creator?.id;
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Dynamic multilingual initial values
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const initialValue = useMemo(() => {
+        return languages.reduce((values, language) => {
+            values[language.code] = creator?.value?.[language.code] ?? "";
+
+            return values;
+        }, {});
+    }, [languages, creator]);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Form
+    // ─────────────────────────────────────────────────────────────────────────
+
     const { data, setData, post, put, processing, errors } = useForm({
-        value: {
-            en: creator?.value?.en ?? "",
-            gu: creator?.value?.gu ?? "",
-        } as Trans,
-        locale,
+        value: initialValue,
+        locale: currentLocale,
     });
 
-    // Keep form locale in sync with header toggle
-    useEffect(() => {
-        setData("locale", locale);
-    }, [locale]);
+    // ─────────────────────────────────────────────────────────────────────────
+    // Keep form locale in sync with header language
+    // ─────────────────────────────────────────────────────────────────────────
 
-    const setValue = (text: string) => {
+    useEffect(() => {
+        setData("locale", currentLocale);
+    }, [currentLocale]);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Set current language value
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const setValue = (text) => {
         setData("value", {
             ...data.value,
-            [locale]: text,
+            [currentLocale]: text,
         });
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    // ─────────────────────────────────────────────────────────────────────────
+    // Submit
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const handleSubmit = (e) => {
         e.preventDefault();
 
         if (isEdit) {
             put(
                 route("role.creators.update", {
-                    rolePrefix: rolePrefix,
-                    category: creator!.id,
+                    rolePrefix,
+                    category: creator.id,
                 }),
                 {
-                    onSuccess: () =>
-                        toast.success(
-                            isGu ? "રચયિતા અપડેટ થયું!" : "Creator updated!",
-                        ),
-                    onError: () =>
-                        toast.error(
-                            isGu
-                                ? "કૃપા કરીને ભૂલો સુધારો."
-                                : "Please fix the errors.",
-                        ),
+                    onSuccess: () => {
+                        // toast.success(translate("creator_updated_success"));
+                    },
+
+                    onError: () => {
+                        // toast.error(translate("please_fix_errors"));
+                    },
                 },
             );
         } else {
             post(
                 route("role.creators.store", {
-                    rolePrefix: rolePrefix,
+                    rolePrefix,
                 }),
                 {
-                    onSuccess: () =>
-                        toast.success(
-                            isGu
-                                ? "રચયિતા સફળતાપૂર્વક ઉમેરાયું!"
-                                : "Creator added successfully!",
-                        ),
-                    onError: () =>
-                        toast.error(
-                            isGu
-                                ? "કૃપા કરીને ભૂલો સુધારો."
-                                : "Please fix the errors.",
-                        ),
+                    onSuccess: () => {
+                        // toast.success(translate("creator_added_success"));
+                    },
+
+                    onError: () => {
+                        // toast.error(translate("please_fix_errors"));
+                    },
                 },
             );
         }
     };
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Page title
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const pageTitle = isEdit
+        ? translate("edit_creator")
+        : translate("add_creator");
+
     return (
         <React.Fragment>
-            <Head
-                title={
-                    isEdit
-                        ? isGu
-                            ? "રચયિતા સંપાદિત કરો"
-                            : "Edit Creator"
-                        : isGu
-                          ? "રચયિતા ઉમેરો"
-                          : "Add Creator"
-                }
-            />
+            <Head title={pageTitle} />
+
             <div className="page-content">
                 <Container fluid>
                     <BreadCrumb
-                        title={
-                            isEdit
-                                ? isGu
-                                    ? "રચયિતા સંપાદિત કરો"
-                                    : "Edit Creator"
-                                : isGu
-                                  ? "રચયિતા ઉમેરો"
-                                  : "Add Creator"
-                        }
-                        pageTitle={isGu ? "રચયિતા" : "Creators"}
+                        title={pageTitle}
+                        pageTitle={translate("creators")}
                     />
-
-                    {/* <div className="mb-3">
-                        <span className="badge bg-primary">
-                            {isGu
-                                ? "ફોર્મ: ગુજરાતી (GU)"
-                                : "Form: English (EN)"}
-                        </span>
-                        <small className="text-muted ms-2">
-                            Switch language from the header toggle to edit the
-                            other translation.
-                        </small>
-                    </div> */}
 
                     <Row>
                         <Col lg={12}>
                             <Card>
+                                {/* ───────────────────────────────────────── */}
+                                {/* Header */}
+                                {/* ───────────────────────────────────────── */}
+
                                 <Card.Header>
                                     <h5 className="card-title mb-0">
                                         {isEdit
-                                            ? isGu
-                                                ? "રચયિતા વિગતો"
-                                                : "Creator Details"
-                                            : isGu
-                                              ? "નવો ક્રિએટર"
-                                              : "New Creator"}
-                                        {/* {isEdit && (
-                                            <span
-                                                className="badge bg-secondary ms-2"
-                                                style={{ fontSize: "10px" }}
-                                            >
-                                                ID #{creator!.id}
-                                            </span>
-                                        )} */}
+                                            ? translate("creator_details")
+                                            : translate("new_creator")}
                                     </h5>
                                 </Card.Header>
+
+                                {/* ───────────────────────────────────────── */}
+                                {/* Body */}
+                                {/* ───────────────────────────────────────── */}
+
                                 <Card.Body>
                                     <Form onSubmit={handleSubmit}>
-                                        {/* Type is fixed – display only */}
+                                        {/* ───────────────────────────────── */}
+                                        {/* Type */}
+                                        {/* ───────────────────────────────── */}
+
                                         <Form.Group className="mb-3">
                                             <Form.Label>
-                                                {isGu ? "પ્રકાર" : "Type"}
+                                                {translate("type")}
                                             </Form.Label>
+
                                             <Form.Control
                                                 type="text"
-                                                value={
-                                                    isGu ? "રચયિતા" : "Creator"
-                                                }
+                                                value={translate("creator")}
                                                 disabled
                                                 readOnly
                                             />
+
                                             <Form.Text className="text-muted">
-                                                {isGu
-                                                    ? "પ્રકાર હંમેશા રચયિતા રહેશે."
-                                                    : "Type is always set to Creator."}
+                                                {translate("creator_type_help")}
                                             </Form.Text>
                                         </Form.Group>
 
-                                        {/* Value – current locale */}
+                                        {/* ───────────────────────────────── */}
+                                        {/* Creator Name */}
+                                        {/* ───────────────────────────────── */}
+
                                         <Form.Group className="mb-3">
                                             <Form.Label htmlFor="creator-value">
-                                                {isGu
-                                                    ? "રચયિતાનું નામ"
-                                                    : "Creator Name"}{" "}
+                                                {translate("creator_name")}{" "}
                                                 <span className="text-danger">
                                                     *
                                                 </span>
                                             </Form.Label>
+
                                             <Form.Control
                                                 type="text"
                                                 id="creator-value"
-                                                placeholder={
-                                                    isGu
-                                                        ? "ઉદા. બ્રહ્માનંદ સ્વામી"
-                                                        : "e.g. Bramhanand swami"
+                                                placeholder={translate(
+                                                    "creator_name_placeholder",
+                                                )}
+                                                value={
+                                                    data.value?.[
+                                                        currentLocale
+                                                    ] ?? ""
                                                 }
-                                                value={data.value[locale] ?? ""}
                                                 onChange={(e) =>
                                                     setValue(e.target.value)
                                                 }
                                                 isInvalid={
-                                                    !!errors[
-                                                        `value.${locale}`
-                                                    ] || !!errors.value
+                                                    !!errors?.[
+                                                        `value.${currentLocale}`
+                                                    ] || !!errors?.value
                                                 }
                                             />
+
                                             <Form.Control.Feedback type="invalid">
-                                                {errors[`value.${locale}`] ||
-                                                    errors.value}
+                                                {translateError(
+                                                    errors?.[
+                                                        `value.${currentLocale}`
+                                                    ] || errors?.type,
+                                                )}
                                             </Form.Control.Feedback>
-                                            {/* <Form.Text className="text-muted">
-                                                {isGu
-                                                    ? "બીજી ભાષા માટે હેડર ટૉગલ બદલો."
-                                                    : "Switch header toggle to fill the other language."}
-                                            </Form.Text> */}
                                         </Form.Group>
 
-                                        {/* Optional: show both languages for reference */}
+                                        {/* ───────────────────────────────── */}
+                                        {/* All languages reference */}
+                                        {/* ───────────────────────────────── */}
+
                                         <div className="mb-3 p-2 rounded border bg-light">
                                             <small className="text-muted d-block mb-1">
-                                                {isGu
-                                                    ? "બંને ભાષાઓ (સંદર્ભ)"
-                                                    : "Both languages (reference)"}
+                                                {translate(
+                                                    "both_languages_reference",
+                                                )}
                                             </small>
+
                                             <div
                                                 className="d-flex flex-wrap gap-3"
-                                                style={{ fontSize: "13px" }}
+                                                style={{
+                                                    fontSize: "13px",
+                                                }}
                                             >
-                                                <span>
-                                                    <strong>EN:</strong>{" "}
-                                                    {data.value.en || "—"}
-                                                </span>
-                                                <span>
-                                                    <strong>GU:</strong>{" "}
-                                                    {data.value.gu || "—"}
-                                                </span>
+                                                {languages.map((language) => (
+                                                    <span key={language.code}>
+                                                        <strong>
+                                                            {language.code.toUpperCase()}
+                                                            :
+                                                        </strong>{" "}
+                                                        {data.value?.[
+                                                            language.code
+                                                        ] || "—"}
+                                                    </span>
+                                                ))}
                                             </div>
                                         </div>
+
+                                        {/* ───────────────────────────────── */}
+                                        {/* Buttons */}
+                                        {/* ───────────────────────────────── */}
 
                                         <div className="text-end">
                                             <Link
                                                 href={route(
                                                     "role.category.creatorlist",
                                                     {
-                                                        rolePrefix: rolePrefix,
+                                                        rolePrefix,
                                                     },
                                                 )}
                                                 className="btn btn-secondary me-2"
                                             >
-                                                {isGu ? "રદ કરો" : "Cancel"}
+                                                {translate("cancel")}
                                             </Link>
+
                                             <button
                                                 type="submit"
                                                 className="btn btn-success"
                                                 disabled={processing}
                                             >
                                                 {processing
-                                                    ? isGu
-                                                        ? "સાચવી રહ્યા છીએ..."
-                                                        : "Saving..."
+                                                    ? translate("saving")
                                                     : isEdit
-                                                      ? isGu
-                                                          ? "અપડેટ કરો"
-                                                          : "Update"
-                                                      : isGu
-                                                        ? "સાચવો"
-                                                        : "Save"}
+                                                      ? translate("update")
+                                                      : translate("save")}
                                             </button>
                                         </div>
                                     </Form>
@@ -280,5 +338,6 @@ const CreatorForm = ({ creator = null }: CreatorFormProps) => {
     );
 };
 
-CreatorForm.layout = (page: any) => <Layout children={page} />;
+CreatorForm.layout = (page) => <Layout children={page} />;
+
 export default CreatorForm;

@@ -1,19 +1,28 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+
 import { Card, Col, Container, Dropdown, Row } from "react-bootstrap";
+
 import TableContainer from "../../../Components/Common/TableContainer";
-import { Head, Link, router, usePage } from "@inertiajs/react";
+
+import { Head, router, usePage } from "@inertiajs/react";
+
 import BreadCrumb from "../../../Components/Common/BreadCrumb";
+
 import DeleteModal from "../../../Components/Common/DeleteModal";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
-import Loader from "../../../Components/Common/Loader";
+
 import Layout from "../../../Layouts";
+
 import { gujaratiNumber } from "../../../utils/number";
+
 import { useAlphabetFilter } from "../../../hooks/useAlphabetFilter";
+
 import AlphabetFilter from "../../../Components/Common/AlphabetFilter";
+
 import { usePermission } from "../../../hooks/usePermission";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface Pad {
     id: number;
@@ -23,7 +32,10 @@ interface Pad {
     status: string;
     created_at: string;
     establish_date?: string | null;
-    kirtan?: { id: number; title: string };
+    kirtan?: {
+        id: number;
+        title: string;
+    };
 }
 
 interface PaginatedPads {
@@ -32,7 +44,11 @@ interface PaginatedPads {
     last_page: number;
     per_page: number;
     total: number;
-    links: { url: string | null; label: string; active: boolean }[];
+    links: {
+        url: string | null;
+        label: string;
+        active: boolean;
+    }[];
 }
 
 interface Props {
@@ -44,22 +60,90 @@ interface Props {
     };
 }
 
-// ─── Status Badge ─────────────────────────────────────────────────────────────
-const StatusBadge = ({ status, isGu }: { status: string; isGu: boolean }) => {
+type TranslationFunction = (
+    key: string,
+    replacements?: Record<string, string | number>,
+) => string;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Centralized Translator
+// ─────────────────────────────────────────────────────────────────────────────
+
+const createTranslator = (
+    translations: Record<string, any>,
+): TranslationFunction => {
+    return (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ): string => {
+        let text = translations[key] ?? key;
+
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(`:${name}`, String(value));
+        });
+
+        return text;
+    };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Date Formatter
+// ─────────────────────────────────────────────────────────────────────────────
+
+const formatDate = (value: any, locale: string): string => {
+    if (!value) {
+        return "—";
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return String(value);
+    }
+
+    const parts = new Intl.DateTimeFormat(locale, {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+    }).formatToParts(date);
+
+    const day = parts.find((part) => part.type === "day")?.value ?? "";
+
+    const month = parts.find((part) => part.type === "month")?.value ?? "";
+
+    const year = parts.find((part) => part.type === "year")?.value ?? "";
+
+    const formatted = `${day}-${month}-${year}`;
+
+    return gujaratiNumber(formatted, locale);
+};
+// ─────────────────────────────────────────────────────────────────────────────
+// Status Badge
+// ─────────────────────────────────────────────────────────────────────────────
+
+const StatusBadge = ({
+    status,
+    tr,
+}: {
+    status: string;
+    tr: TranslationFunction;
+}) => {
     const key = (status || "").toLowerCase();
 
-    // map status → display label
     const classMap: Record<string, string> = {
         published: "badge bg-success-subtle text-success text-uppercase",
+
         save: "badge bg-success-subtle text-success text-uppercase",
+
         draft: "badge bg-warning-subtle text-warning text-uppercase",
     };
 
     let label = status || "—";
+
     if (key === "save" || key === "published") {
-        label = isGu ? "પ્રકાશિત" : "Published";
+        label = tr("published");
     } else if (key === "draft") {
-        label = isGu ? "ડ્રાફ્ટ" : "Draft";
+        label = tr("draft");
     }
 
     return (
@@ -74,65 +158,113 @@ const StatusBadge = ({ status, isGu }: { status: string; isGu: boolean }) => {
     );
 };
 
-// Strip long lyrics down to a short preview for the table cell
+// ─────────────────────────────────────────────────────────────────────────────
+// Truncate Lyrics
+// ─────────────────────────────────────────────────────────────────────────────
+
 const truncate = (text: string, len = 60) => {
-    if (!text) return "";
+    if (!text) {
+        return "";
+    }
+
     return text.length > len ? `${text.slice(0, len)}…` : text;
 };
 
-// ─── Component ────────────────────────────────────────────────────────────────
-const translations = {
-    en: {
-        createPad: "Create Pad",
-    },
-    gu: {
-        createPad: "પદ બનાવો",
-    },
-};
+// ─────────────────────────────────────────────────────────────────────────────
+// Component
+// ─────────────────────────────────────────────────────────────────────────────
 
 const PadList: React.FC<Props> = ({ pads, filters }) => {
-    const page = usePage().props as { locale?: string };
-    const { auth } = usePage().props as any;
+    const page = usePage().props as any;
+
+    const { auth, translations = {}, locale } = page;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Locale
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const currentLocale = locale || "gu";
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Central Translator
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const tr = useMemo(() => createTranslator(translations), [translations]);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Dynamic Role Prefix
+    // ─────────────────────────────────────────────────────────────────────────
+
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
-    const locale = (page.locale === "gu" ? "gu" : "en") as "en" | "gu";
-    const isGu = locale === "gu";
 
-    // ── Permission checks ──────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
+    // Permissions
+    // ─────────────────────────────────────────────────────────────────────────
+
     const { can } = usePermission();
+
     const canCreate = can("pads", "create");
     const canEdit = can("pads", "edit");
     const canDelete = can("pads", "delete");
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Pad Data
+    // ─────────────────────────────────────────────────────────────────────────
+
     const [padData, setPadData] = useState<Pad[]>(pads?.data ?? []);
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Filters
+    // ─────────────────────────────────────────────────────────────────────────
+
     const [search, setSearch] = useState(filters?.search ?? "");
+
     const [statusFilter, setStatusFilter] = useState(filters?.status ?? "");
-    // Delete
-    const [pad, setPad] = useState<any>(null);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Delete State
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const [pad, setPad] = useState<Pad | null>(null);
+
     const [deleteModal, setDeleteModal] = useState<boolean>(false);
+
     const [deleteModalMulti, setDeleteModalMulti] = useState<boolean>(false);
+
     const [selectedCheckBoxDelete, setSelectedCheckBoxDelete] = useState<
         number[]
     >([]);
+
     const [isMultiDeleteButton, setIsMultiDeleteButton] = useState(false);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Alphabet Filter
+    // ─────────────────────────────────────────────────────────────────────────
 
     const { selectedLetter, handleLetterFilter } = useAlphabetFilter(
         "role.pads.list",
         {
-            rolePrefix: rolePrefix,
+            rolePrefix,
             search: search || undefined,
             status: statusFilter || undefined,
             per_page: 10,
         },
     );
 
-    // Sync prop changes
+    // ─────────────────────────────────────────────────────────────────────────
+    // Sync Filters
+    // ─────────────────────────────────────────────────────────────────────────
+
     useEffect(() => {
         setSearch(filters?.search ?? "");
         setStatusFilter(filters?.status ?? "");
     }, [filters]);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Sync Pad Data
+    // ─────────────────────────────────────────────────────────────────────────
 
     useEffect(() => {
         if (pads?.data) {
@@ -140,31 +272,16 @@ const PadList: React.FC<Props> = ({ pads, filters }) => {
         }
     }, [pads]);
 
-    const labels = {
-        en: {
-            id: "ID",
-            title: "Pad Title",
-            lyrics: "Lyrics",
-            status: "Status",
-            createdAt: "Created At",
-            actions: "Actions",
-        },
-        gu: {
-            id: "ક્રમ",
-            title: "પદ શીર્ષક",
-            lyrics: "ગીતો",
-            status: "સ્થિતિ",
-            createdAt: "બનાવ્યાની તારીખ",
-            actions: "ક્રિયાઓ",
-        },
-    }[locale];
+    // ─────────────────────────────────────────────────────────────────────────
+    // Search
+    // ─────────────────────────────────────────────────────────────────────────
 
     const handleSearch = (value: string) => {
         setSearch(value);
 
         router.get(
             route("role.pads.list", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
             {
                 search: value || undefined,
@@ -180,38 +297,50 @@ const PadList: React.FC<Props> = ({ pads, filters }) => {
         );
     };
 
-    // const handleEdit = (row: Pad) => {
-    //     router.visit(route("admin.pads.edit", row.id));
-    // };
+    // ─────────────────────────────────────────────────────────────────────────
+    // Edit
+    // ─────────────────────────────────────────────────────────────────────────
+
     const handleEdit = (row: Pad) => {
         router.visit(
             route("role.pads.edit", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 pad: row.id,
             }),
         );
     };
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Row Click
+    // ─────────────────────────────────────────────────────────────────────────
 
     const handleRowClick = (row: Pad) => {
         router.visit(
             route("role.pads.show", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 pad: row.id,
             }),
         );
     };
 
-    // Delete
+    // ─────────────────────────────────────────────────────────────────────────
+    // Delete Single
+    // ─────────────────────────────────────────────────────────────────────────
+
     const onClickDelete = (item: Pad) => {
         setPad(item);
         setDeleteModal(true);
     };
 
-    // Checked All
+    // ─────────────────────────────────────────────────────────────────────────
+    // Select All
+    // ─────────────────────────────────────────────────────────────────────────
+
     const checkedAll = useCallback(
         (checked: boolean) => {
             if (checked) {
                 const allIds = padData.map((p) => Number(p.id));
+
                 setSelectedCheckBoxDelete(allIds);
                 setIsMultiDeleteButton(allIds.length > 0);
             } else {
@@ -222,38 +351,37 @@ const PadList: React.FC<Props> = ({ pads, filters }) => {
         [padData],
     );
 
-    const handleDeletePad = () => {
-        if (pad) {
-            router.delete(
-                route("role.pads.destroy", {
-                    rolePrefix: rolePrefix,
-                    pad: pad.id,
-                }),
-                {
-                    onSuccess: () => {
-                        setDeleteModal(false);
+    // ─────────────────────────────────────────────────────────────────────────
+    // Delete Single Pad
+    // ─────────────────────────────────────────────────────────────────────────
 
-                        toast.success(
-                            isGu
-                                ? "પદ સફળતાપૂર્વક કાઢી નાખવામાં આવ્યું."
-                                : "Pad deleted successfully",
-                        );
-                    },
-                },
-            );
+    const handleDeletePad = () => {
+        if (!pad) {
+            return;
         }
+
+        router.delete(
+            route("role.pads.destroy", {
+                rolePrefix,
+                pad: pad.id,
+            }),
+            {
+                onSuccess: () => {
+                    setDeleteModal(false);
+                    setPad(null);
+                },
+            },
+        );
     };
 
-    // Delete Multiple
+    // ─────────────────────────────────────────────────────────────────────────
+    // Delete Multiple Pads
+    // ─────────────────────────────────────────────────────────────────────────
+
     const deleteMultiple = () => {
         const ids = selectedCheckBoxDelete;
 
         if (!ids.length) {
-            toast.warning(
-                isGu
-                    ? "ઓછામાં ઓછું એક પદ પસંદ કરો."
-                    : "Select at least one pad.",
-            );
             return;
         }
 
@@ -261,35 +389,34 @@ const PadList: React.FC<Props> = ({ pads, filters }) => {
             route("role.pads.bulk-destroy", {
                 rolePrefix,
             }),
-            { ids },
+            {
+                ids,
+            },
             {
                 preserveScroll: true,
-                onSuccess: () => {
-                    toast.success(
-                        isGu
-                            ? "પદો સફળતાપૂર્વક કાઢી નાખવામાં આવ્યા."
-                            : "Pads deleted successfully.",
-                    );
 
+                onSuccess: () => {
                     setSelectedCheckBoxDelete([]);
                     setIsMultiDeleteButton(false);
-                },
-                onError: () => {
-                    toast.error(
-                        isGu
-                            ? "પદો કાઢી નાખવામાં નિષ્ફળતા."
-                            : "Failed to delete pads.",
-                    );
                 },
             },
         );
     };
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Table Columns
+    // ─────────────────────────────────────────────────────────────────────────
+
     const columns = useMemo(
         () => [
+            // ────────────────────────────────────────────────────────────────
+            // Checkbox
+            // ────────────────────────────────────────────────────────────────
             ...(canDelete
                 ? [
                       {
+                          id: "select",
+
                           header: (
                               <input
                                   type="checkbox"
@@ -303,6 +430,7 @@ const PadList: React.FC<Props> = ({ pads, filters }) => {
                                   onChange={(e) => checkedAll(e.target.checked)}
                               />
                           ),
+
                           cell: (cellProps: any) => (
                               <input
                                   type="checkbox"
@@ -328,108 +456,147 @@ const PadList: React.FC<Props> = ({ pads, filters }) => {
                                           setIsMultiDeleteButton(
                                               updated.length > 0,
                                           );
+
                                           return updated;
                                       });
                                   }}
                               />
                           ),
-                          id: "#",
                       },
                   ]
                 : []),
+
+            // ────────────────────────────────────────────────────────────────
+            // ID
+            // ────────────────────────────────────────────────────────────────
             {
-                header: labels.id,
+                id: "id",
+                header: tr("id"),
                 accessorKey: "id",
                 enableColumnFilter: false,
-                cell: (cellProps: any) => (
-                    <span className="fw-medium text-primary">
-                        #{gujaratiNumber(cellProps.getValue(), locale)}
-                    </span>
-                ),
+
+                cell: (cellProps: any) => {
+                    const rowIndex =
+                        (pads.current_page - 1) * pads.per_page +
+                        cellProps.row.index +
+                        1;
+                    return (
+                        <span className="fw-medium text-primary">
+                            {gujaratiNumber(rowIndex, currentLocale)}
+                        </span>
+                    );
+                },
             },
+
+            // ────────────────────────────────────────────────────────────────
+            // Title
+            // ────────────────────────────────────────────────────────────────
             {
-                header: labels.title,
+                id: "title",
+                header: tr("pad_title"),
                 accessorKey: "title",
                 enableColumnFilter: false,
+
                 cell: (cellProps: any) => (
                     <span className="text-body fw-semibold">
-                        {cellProps.getValue()}
+                        {truncate(cellProps.getValue())}
                     </span>
                 ),
             },
+
+            // ────────────────────────────────────────────────────────────────
+            // Lyrics
+            // ────────────────────────────────────────────────────────────────
             {
-                header: labels.lyrics,
+                id: "value",
+                header: tr("lyrics"),
                 accessorKey: "value",
                 enableColumnFilter: false,
+
                 cell: (cellProps: any) => (
                     <span className="text-muted" style={{ fontSize: "13px" }}>
                         {truncate(cellProps.getValue())}
                     </span>
                 ),
             },
-            // ─── Recording column ─────────────────────────────────────────────
 
+            // ────────────────────────────────────────────────────────────────
+            // Status
+            // ────────────────────────────────────────────────────────────────
             ...(canEdit
                 ? [
                       {
-                          header: labels.status,
+                          id: "status",
+                          header: tr("status"),
                           accessorKey: "status",
                           enableColumnFilter: false,
+
                           cell: (cellProps: any) => (
                               <StatusBadge
                                   status={cellProps.getValue()}
-                                  isGu={isGu}
+                                  tr={tr}
                               />
                           ),
                       },
                   ]
                 : []),
+
+            // ────────────────────────────────────────────────────────────────
+            // Created At
+            // ────────────────────────────────────────────────────────────────
             {
-                header: labels.createdAt,
+                id: "created_at",
+                header: tr("created_at"),
                 accessorKey: "created_at",
                 enableColumnFilter: false,
 
                 cell: (cellProps: any) => {
-                    const formattedDate = new Date(cellProps.getValue())
-                        .toLocaleDateString("en-IN", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            year: "numeric",
-                        })
-                        .replace(/\//g, "-");
-                    return (
-                        <span className="text-muted">
-                            {gujaratiNumber(formattedDate, locale)}
-                        </span>
+                    const formattedDate = formatDate(
+                        cellProps.getValue(),
+                        currentLocale,
                     );
+
+                    return <span className="text-muted">{formattedDate}</span>;
                 },
             },
+
+            // ────────────────────────────────────────────────────────────────
+            // Actions
+            // ────────────────────────────────────────────────────────────────
             {
-                header: labels.actions,
+                id: "actions",
+                header: tr("actions"),
+
                 cell: (cellProps: any) => (
                     <div onClick={(e) => e.stopPropagation()}>
-                        <Dropdown>
+                        <Dropdown drop="down">
                             <Dropdown.Toggle
                                 as="a"
                                 className="btn btn-soft-secondary btn-sm arrow-none"
                             >
                                 <i className="ri-more-fill align-middle"></i>
                             </Dropdown.Toggle>
+
                             <Dropdown.Menu className="dropdown-menu-end">
-                                {/* View – always show if user can see the list */}
+                                {/* View */}
                                 <li>
                                     <Dropdown.Item
-                                        href={route("role.pads.show", {
-                                            rolePrefix: rolePrefix,
-                                            pad: cellProps.row.original.id,
-                                        })}
+                                        onClick={() =>
+                                            router.visit(
+                                                route("role.pads.show", {
+                                                    rolePrefix,
+                                                    pad: cellProps.row.original
+                                                        .id,
+                                                }),
+                                            )
+                                        }
                                     >
                                         <i className="ri-eye-fill align-bottom me-2 text-muted"></i>{" "}
-                                        {isGu ? "જુઓ" : "View"}
+                                        {tr("view")}
                                     </Dropdown.Item>
                                 </li>
 
-                                {/* Edit – only if has edit permission */}
+                                {/* Edit */}
                                 {canEdit && (
                                     <li>
                                         <Dropdown.Item
@@ -439,13 +606,13 @@ const PadList: React.FC<Props> = ({ pads, filters }) => {
                                                 )
                                             }
                                         >
-                                            <i className="ri-pencil-fill align-bottom me-2 text-muted"></i>
-                                            {isGu ? "ફેરફાર કરો" : "Edit"}
+                                            <i className="ri-pencil-fill align-bottom me-2 text-muted"></i>{" "}
+                                            {tr("edit")}
                                         </Dropdown.Item>
                                     </li>
                                 )}
 
-                                {/* Delete – only if has delete permission */}
+                                {/* Delete */}
                                 {canDelete && (
                                     <li>
                                         <Dropdown.Item
@@ -455,11 +622,12 @@ const PadList: React.FC<Props> = ({ pads, filters }) => {
                                             onClick={() => {
                                                 const padRow =
                                                     cellProps.row.original;
+
                                                 onClickDelete(padRow);
                                             }}
                                         >
                                             <i className="ri-delete-bin-fill align-bottom me-2 text-muted"></i>{" "}
-                                            {isGu ? "કાઢી નાખો" : "Delete"}
+                                            {tr("delete")}
                                         </Dropdown.Item>
                                     </li>
                                 )}
@@ -470,32 +638,40 @@ const PadList: React.FC<Props> = ({ pads, filters }) => {
             },
         ],
         [
-            labels,
-            locale,
-            isGu,
+            tr,
+            currentLocale,
             checkedAll,
             selectedCheckBoxDelete,
             padData,
             canDelete,
             canEdit,
+            rolePrefix,
         ],
     );
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Render
+    // ─────────────────────────────────────────────────────────────────────────
+
     return (
         <React.Fragment>
-            <Head title={isGu ? "પદોની યાદી" : "Pads list"} />
+            <Head title={tr("pads_list")} />
+
             <div className="page-content">
                 <Container fluid>
                     <BreadCrumb
-                        title={isGu ? "પદોની યાદી" : "Pads List"}
-                        pageTitle={isGu ? "પદો" : "Pads"}
+                        title={tr("pads_list")}
+                        pageTitle={tr("pads")}
                     />
 
+                    {/* Single Delete Modal */}
                     <DeleteModal
                         show={deleteModal}
                         onDeleteClick={handleDeletePad}
                         onCloseClick={() => setDeleteModal(false)}
                     />
+
+                    {/* Multiple Delete Modal */}
                     <DeleteModal
                         show={deleteModalMulti}
                         onDeleteClick={() => {
@@ -508,13 +684,19 @@ const PadList: React.FC<Props> = ({ pads, filters }) => {
                     <Row>
                         <Col lg={12}>
                             <Card>
+                                {/* ───────────────────────────────────────── */}
+                                {/* Header */}
+                                {/* ───────────────────────────────────────── */}
+
                                 <Card.Header className="border-0">
                                     <div className="d-flex align-items-center">
                                         <h5 className="card-title mb-0 flex-grow-1">
-                                            {isGu ? "પદો" : "Pads"}
+                                            {tr("pads")}
                                         </h5>
+
                                         <div className="flex-shrink-0">
                                             <div className="d-flex flex-wrap gap-2">
+                                                {/* Create */}
                                                 {canCreate && (
                                                     <button
                                                         className="btn btn-danger add-btn"
@@ -523,25 +705,18 @@ const PadList: React.FC<Props> = ({ pads, filters }) => {
                                                                 route(
                                                                     "role.pads.create",
                                                                     {
-                                                                        rolePrefix:
-                                                                            rolePrefix,
+                                                                        rolePrefix,
                                                                     },
                                                                 ),
-                                                                {
-                                                                    data: {
-                                                                        locale,
-                                                                    },
-                                                                },
                                                             )
                                                         }
                                                     >
                                                         <i className="ri-add-line align-bottom"></i>{" "}
-                                                        {
-                                                            translations[locale]
-                                                                .createPad
-                                                        }
+                                                        {tr("create_pad")}
                                                     </button>
                                                 )}
+
+                                                {/* Multiple Delete */}
                                                 {canDelete &&
                                                     isMultiDeleteButton && (
                                                         <button
@@ -560,18 +735,22 @@ const PadList: React.FC<Props> = ({ pads, filters }) => {
                                     </div>
                                 </Card.Header>
 
+                                {/* ───────────────────────────────────────── */}
+                                {/* Body */}
+                                {/* ───────────────────────────────────────── */}
+
                                 <Card.Body className="pt-0">
                                     {/* Search */}
                                     <div className="d-flex justify-content-end mb-3">
                                         <input
                                             type="search"
                                             className="form-control"
-                                            style={{ maxWidth: 280 }}
-                                            placeholder={
-                                                isGu
-                                                    ? "પદ શીર્ષક, ગીતો, ગાયક... શોધો"
-                                                    : "Search title, lyrics, singer..."
-                                            }
+                                            style={{
+                                                maxWidth: 330,
+                                            }}
+                                            placeholder={tr(
+                                                "search_placeholder_padlist",
+                                            )}
                                             value={search}
                                             onChange={(e) =>
                                                 handleSearch(e.target.value)
@@ -579,217 +758,13 @@ const PadList: React.FC<Props> = ({ pads, filters }) => {
                                         />
                                     </div>
 
-                                    {/* ========== MOBILE / TABLET Alphabet (Horizontal) ========== */}
-                                    {/* <div className="d-lg-none mb-3">
-                                        <div
-                                            className="d-flex gap-1 overflow-auto pb-2"
-                                            style={{ scrollbarWidth: "thin" }}
-                                        >
-                                            {alphabet.map((letter) => (
-                                                <button
-                                                    key={letter}
-                                                    type="button"
-                                                    onClick={() =>
-                                                        handleLetterFilter(
-                                                            letter,
-                                                        )
-                                                    }
-                                                    className={`btn btn-sm rounded-circle flex-shrink-0 ${
-                                                        selectedLetter ===
-                                                        letter
-                                                            ? "btn-primary"
-                                                            : "btn-soft-secondary"
-                                                    }`}
-                                                    style={{
-                                                        width: 36,
-                                                        height: 36,
-                                                        padding: 0,
-                                                        fontSize: 13,
-                                                        fontWeight: 600,
-                                                    }}
-                                                >
-                                                    {letter}
-                                                </button>
-                                            ))}
-
-                                            {selectedLetter && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() =>
-                                                        handleLetterFilter("")
-                                                    }
-                                                    className="btn btn-sm btn-soft-danger rounded-circle flex-shrink-0"
-                                                    style={{
-                                                        width: 36,
-                                                        height: 36,
-                                                        padding: 0,
-                                                    }}
-                                                >
-                                                    ×
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div> */}
-
-                                    {/* ========== DESKTOP Layout ========== */}
-                                    {/* <div className="d-flex gap-3"> */}
-                                    {/* Table */}
-                                    {/* <div
-                                            className="flex-grow-1"
-                                            style={{ minWidth: 0 }}
-                                        >
-                                            {padData && padData.length > 0 ? (
-                                                <>
-                                                    <TableContainer
-                                                        columns={columns}
-                                                        data={padData || []}
-                                                        isGlobalFilter={false}
-                                                        customPageSize={10}
-                                                        divClass="table-responsive table-card mb-3"
-                                                        tableClass="align-middle table-nowrap mb-0"
-                                                        theadClass=""
-                                                        thClass=""
-                                                        onRowClick={
-                                                            handleRowClick
-                                                        }
-                                                    />
-
-                                                    {pads.last_page > 1 && (
-                                                        <div className="d-flex flex-column flex-sm-row justify-content-between align-items-center gap-2 mt-2">
-                                                            <small className="text-muted">
-                                                                Showing{" "}
-                                                                {padData.length}{" "}
-                                                                of {pads.total}{" "}
-                                                                results
-                                                            </small>
-                                                            <ul className="pagination pagination-sm mb-0">
-                                                                {pads.links.map(
-                                                                    (
-                                                                        link,
-                                                                        idx,
-                                                                    ) => (
-                                                                        <li
-                                                                            key={
-                                                                                idx
-                                                                            }
-                                                                            className={`page-item ${link.active ? "active" : ""} ${!link.url ? "disabled" : ""}`}
-                                                                        >
-                                                                            <button
-                                                                                className="page-link"
-                                                                                onClick={() =>
-                                                                                    link.url &&
-                                                                                    router.visit(
-                                                                                        link.url,
-                                                                                        {
-                                                                                            preserveState: true,
-                                                                                        },
-                                                                                    )
-                                                                                }
-                                                                                dangerouslySetInnerHTML={{
-                                                                                    __html: link.label,
-                                                                                }}
-                                                                            />
-                                                                        </li>
-                                                                    ),
-                                                                )}
-                                                            </ul>
-                                                        </div>
-                                                    )}
-                                                </>
-                                            ) : (
-                                                <div className="text-center py-5">
-                                                    <div className="text-muted">
-                                                        {isGu
-                                                            ? "કોઈ પદ મળ્યું નથી."
-                                                            : "No pads found."}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div> */}
-
-                                    {/* ========== DESKTOP Alphabet (Vertical Sticky) ========== */}
-                                    {/* <div
-                                            className="d-none d-lg-flex flex-column align-items-center gap-1"
-                                            style={{
-                                                position: "sticky",
-                                                top: 100,
-                                                maxHeight:
-                                                    "calc(100vh - 180px)", // ← important
-                                                overflowY: "auto", // ← enables scroll
-                                                height: "fit-content",
-                                                minWidth: isGu ? 42 : 36,
-                                            }}
-                                        >
-                                            {alphabet.map((letter) => (
-                                                <button
-                                                    key={letter}
-                                                    type="button"
-                                                    onClick={() =>
-                                                        handleLetterFilter(
-                                                            letter,
-                                                        )
-                                                    }
-                                                    className={`btn btn-sm rounded-circle ${
-                                                        selectedLetter ===
-                                                        letter
-                                                            ? "btn-primary"
-                                                            : "btn-soft-secondary"
-                                                    }`}
-                                                    style={{
-                                                        width: 36,
-                                                        height: 36,
-                                                        minWidth: 36,
-                                                        minHeight: 36,
-                                                        padding: 0,
-                                                        borderRadius: "50%", // ← forces perfect circle
-                                                        fontSize: 13,
-                                                        fontWeight: 600,
-                                                        display: "flex",
-                                                        alignItems: "center",
-                                                        justifyContent:
-                                                            "center",
-                                                        lineHeight: 1,
-                                                    }}
-                                                    title={letter}
-                                                >
-                                                    {letter}
-                                                </button>
-                                            ))}
-
-                                            {selectedLetter && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() =>
-                                                        handleLetterFilter("")
-                                                    }
-                                                    className="btn btn-sm btn-soft-danger rounded-circle mt-2"
-                                                    style={{
-                                                        width: isGu ? 38 : 32,
-                                                        height: isGu ? 38 : 32,
-                                                        padding: 0,
-                                                        fontSize: 16,
-                                                    }}
-                                                    title={
-                                                        isGu
-                                                            ? "ફિલ્ટર સાફ કરો"
-                                                            : "Clear filter"
-                                                    }
-                                                >
-                                                    ×
-                                                </button>
-                                            )}
-                                        </div> */}
-
-                                    {/* </div> */}
-
-                                    {/* FOR ALL DEVICE SHOW THIS LAYOUT */}
-                                    {/* ========== Alphabet - Horizontal on ALL screens ========== */}
+                                    {/* Alphabet Filter */}
                                     <AlphabetFilter
                                         selectedLetter={selectedLetter}
                                         onSelect={handleLetterFilter}
                                     />
 
-                                    {/* ========== Table ========== */}
+                                    {/* Table */}
                                     <div>
                                         {padData && padData.length > 0 ? (
                                             <>
@@ -805,13 +780,23 @@ const PadList: React.FC<Props> = ({ pads, filters }) => {
                                                     onRowClick={handleRowClick}
                                                 />
 
+                                                {/* Pagination */}
                                                 {pads.last_page > 1 && (
                                                     <div className="d-flex flex-column flex-sm-row justify-content-between align-items-center gap-2 mt-2">
                                                         <small className="text-muted">
-                                                            Showing{" "}
-                                                            {padData.length} of{" "}
-                                                            {pads.total} results
+                                                            {tr("showing")}{" "}
+                                                            {gujaratiNumber(
+                                                                padData.length,
+                                                                currentLocale,
+                                                            )}{" "}
+                                                            {tr("of")}{" "}
+                                                            {gujaratiNumber(
+                                                                pads.total,
+                                                                currentLocale,
+                                                            )}{" "}
+                                                            {tr("results")}
                                                         </small>
+
                                                         <ul className="pagination pagination-sm mb-0">
                                                             {pads.links.map(
                                                                 (link, idx) => (
@@ -819,7 +804,15 @@ const PadList: React.FC<Props> = ({ pads, filters }) => {
                                                                         key={
                                                                             idx
                                                                         }
-                                                                        className={`page-item ${link.active ? "active" : ""} ${!link.url ? "disabled" : ""}`}
+                                                                        className={`page-item ${
+                                                                            link.active
+                                                                                ? "active"
+                                                                                : ""
+                                                                        } ${
+                                                                            !link.url
+                                                                                ? "disabled"
+                                                                                : ""
+                                                                        }`}
                                                                     >
                                                                         <button
                                                                             className="page-link"
@@ -846,18 +839,16 @@ const PadList: React.FC<Props> = ({ pads, filters }) => {
                                         ) : (
                                             <div className="text-center py-5">
                                                 <div className="text-muted">
-                                                    {isGu
-                                                        ? "કોઈ પદ મળ્યું નથી."
-                                                        : "No pads found."}
+                                                    {tr("no_pads_found")}
                                                 </div>
                                             </div>
                                         )}
                                     </div>
 
-                                    <ToastContainer
+                                    {/* <ToastContainer
                                         closeButton={false}
                                         limit={1}
-                                    />
+                                    /> */}
                                 </Card.Body>
                             </Card>
                         </Col>
@@ -868,5 +859,10 @@ const PadList: React.FC<Props> = ({ pads, filters }) => {
     );
 };
 
-PadList.layout = (page: any) => <Layout children={page} />;
+// ─────────────────────────────────────────────────────────────────────────────
+// Layout
+// ─────────────────────────────────────────────────────────────────────────────
+
+PadList.layout = (page: any) => <Layout>{page}</Layout>;
+
 export default PadList;

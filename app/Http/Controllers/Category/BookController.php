@@ -4,511 +4,1038 @@ namespace App\Http\Controllers\Category;
 
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Models\Language;
+use App\Models\Pad;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
 use Inertia\Inertia;
 
 class BookController extends Controller
 {
-    // public function bookList(Request $request)
-    // {
-    //     $search = $request->input('search');
-
-    //     $books = Category::query()
-    //         ->where('type->en', 'Book')
-    //         ->when($search, function ($query) use ($search) {
-    //             $query->where(function ($q) use ($search) {
-    //                 $q->where('value->en', 'like', "%{$search}%")
-    //                     ->orWhere('value->gu', 'like', "%{$search}%");
-    //             });
-    //         })
-    //         ->withCount('pads')
-    //         ->latest()
-    //         ->paginate(10)
-    //         ->withQueryString();
-
-    //     return Inertia::render('Admin/Categories/Book/BookList', [
-    //         'books' => $books,
-    //         'filters' => [
-    //             'search' => $search,
-    //         ],
-    //         'locale' => app()->getLocale(),
-    //     ]);
-    // }
-
-
-    public function bookList(Request $request)
+    /**
+     * Get all languages configured in the database.
+     */
+    private function supportedLocales(): array
     {
-        $locale = app()->getLocale();
+        $codes = Language::query()
+            ->pluck('code')
+            ->filter()
+            ->map(fn($code) => strtolower(trim($code)))
+            ->unique()
+            ->values()
+            ->all();
 
-        if (!in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
+        return !empty($codes) ? $codes : ['en'];
+    }
+
+    /**
+     * Resolve the current locale against languages configured in DB.
+     */
+    private function resolveLocale(?string $locale = null): string
+    {
+        $locale = strtolower(trim($locale ?: app()->getLocale()));
+        $locales = $this->supportedLocales();
+
+        return in_array($locale, $locales, true)
+            ? $locale
+            : ($locales[0] ?? 'en');
+    }
+
+    /**
+     * Get language records for frontend.
+     */
+    private function getLanguages()
+    {
+        return Language::query()
+            ->orderBy('id')
+            ->get([
+                'id',
+                'code',
+                'name',
+            ]);
+    }
+
+    /**
+     * Read custom translation JSON files.
+     *
+     * Merges:
+     * lang/{locale}/{locale}.json
+     * lang/{locale}/messages.json
+     */
+    private function translationValues(string $locale): array
+    {
+        $locale = $this->resolveLocale($locale);
+
+        $translations = [];
+
+        $files = [
+            base_path("lang/{$locale}/{$locale}.json"),
+            base_path("lang/{$locale}/messages.json"),
+        ];
+
+        foreach ($files as $file) {
+            if (!File::exists($file)) {
+                continue;
+            }
+
+            $content = File::get($file);
+            $json = json_decode($content, true);
+
+            if (is_array($json)) {
+                $translations = array_merge(
+                    $translations,
+                    $json
+                );
+            }
         }
 
-        $search = trim($request->input('search', ''));
-        $letter = trim($request->get('letter', ''));
+        return $translations;
+    }
 
+    /**
+     * Get a translation value from custom JSON files.
+     */
+    private function translation(string $key, string $locale, string $fallback = ''): string
+    {
+        $translations = $this->translationValues($locale);
 
-        $query = Category::query()
-            ->where(function ($q) {
-                // Only Book categories
-                $q->whereRaw(
-                    "LOWER(JSON_UNQUOTE(JSON_EXTRACT(type, '$.en'))) = ?",
-                    ['book']
+        $value = $translations[$key] ?? null;
+
+        return is_string($value) && trim($value) !== ''
+            ? $value
+            : $fallback;
+    }
+
+    /**
+     * Get translated category type.
+     *
+     * Example:
+     * en => Book
+     * gu => પુસ્તક
+     * hi => पुस्तक
+     */
+    private function categoryTypeTranslation(
+        string $locale,
+        string $fallback = 'Book'
+    ): string {
+        return $this->translation(
+            'book',
+            $locale,
+            $fallback
+        );
+    }
+
+    /**
+     * Get Book translations for every supported language.
+     */
+    private function categoryTypeTranslations(): array
+    {
+        $translations = [];
+
+        foreach ($this->supportedLocales() as $locale) {
+            $translations[$locale] = $this->categoryTypeTranslation(
+                $locale,
+                $locale === 'en' ? 'Book' : ''
+            );
+        }
+
+        return $translations;
+    }
+
+    /**
+     * Check whether a category is actually a Book.
+     */
+    private function isBook(Category $category): bool
+    {
+        $typeTranslations = $this->categoryTypeTranslations();
+
+        foreach ($typeTranslations as $type) {
+            if (
+                is_string($type) &&
+                trim($type) !== '' &&
+                $category->getTranslation('type', array_search($type, $typeTranslations, true), false) === $type
+            ) {
+                return true;
+            }
+        }
+
+        /*
+         * More reliable check:
+         * compare the category's type against every supported locale.
+         */
+        foreach ($this->supportedLocales() as $locale) {
+            $storedType = $category->getTranslation(
+                'type',
+                $locale,
+                false
+            );
+
+            $bookType = $this->categoryTypeTranslation(
+                $locale,
+                $locale === 'en' ? 'Book' : ''
+            );
+
+            if (
+                is_string($storedType) &&
+                is_string($bookType) &&
+                trim($storedType) !== '' &&
+                trim($bookType) !== '' &&
+                mb_strtolower(trim($storedType)) === mb_strtolower(trim($bookType))
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Resolve a translated model field.
+     *
+     * Current locale first, then every configured locale.
+     */
+    private function translatedValue(
+        $model,
+        string $field,
+        string $locale
+    ): string {
+        if (!$model) {
+            return '';
+        }
+
+        $locales = $this->supportedLocales();
+
+        $orderedLocales = array_values(
+            array_unique(
+                array_merge(
+                    [$locale],
+                    $locales
                 )
-                    ->orWhereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(type, '$.gu')) LIKE ?",
-                        ['%પુસ્તક%']
+            )
+        );
+
+        foreach ($orderedLocales as $code) {
+            $value = $model->getTranslation(
+                $field,
+                $code,
+                false
+            );
+
+            if (
+                is_string($value) &&
+                trim($value) !== ''
+            ) {
+                return $value;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Resolve a model field for all languages.
+     */
+    private function getLanguageValues(
+        $model,
+        string $field
+    ): array {
+        $values = [];
+
+        foreach ($this->supportedLocales() as $locale) {
+            $values[$locale] = $model
+                ? ($model->getTranslation(
+                    $field,
+                    $locale,
+                    false
+                ) ?: '')
+                : '';
+        }
+
+        return $values;
+    }
+
+    /**
+     * Book List
+     */
+    public function bookList(Request $request)
+    {
+        $locale = $this->resolveLocale(
+            $request->input('locale')
+        );
+
+        $search = trim(
+            $request->input('search', '')
+        );
+
+        $letter = trim(
+            $request->input('letter', '')
+        );
+
+        $locales = $this->supportedLocales();
+
+        /*
+         * Get translated Book type values.
+         */
+        $bookTypes = [];
+
+        foreach ($locales as $code) {
+            $type = $this->categoryTypeTranslation(
+                $code,
+                $code === 'en' ? 'Book' : ''
+            );
+
+            if ($type !== '') {
+                $bookTypes[] = mb_strtolower(
+                    trim($type)
+                );
+            }
+        }
+
+        /*
+         * Find Book categories dynamically.
+         */
+        $query = Category::query()
+            ->where(function ($q) use ($locales, $bookTypes) {
+                foreach ($locales as $index => $code) {
+                    $typesForLocale = array_filter(
+                        $bookTypes,
+                        fn($type) => $type !== ''
                     );
+
+                    if (empty($typesForLocale)) {
+                        continue;
+                    }
+
+                    foreach ($typesForLocale as $type) {
+                        $method = ($index === 0)
+                            ? 'whereRaw'
+                            : 'orWhereRaw';
+
+                        $q->{$method}(
+                            "LOWER(JSON_UNQUOTE(JSON_EXTRACT(type, '$.{$code}'))) = ?",
+                            [$type]
+                        );
+                    }
+                }
             })
             ->withCount('pads');
 
-
+        /*
+         * Alphabet filter.
+         *
+         * The alphabet is applied to the currently selected locale.
+         */
         if ($letter !== '') {
-            $query->where(function ($q) use ($letter, $locale) {
+            $query->where(function ($q) use (
+                $locale,
+                $letter
+            ) {
+                $value = mb_strtolower(
+                    $letter
+                );
 
-                if ($locale === 'gu') {
-                    $q->whereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(value, '$.gu')) LIKE ?",
-                        [$letter . '%']
-                    );
-                } else {
-                    $q->whereRaw(
-                        "LOWER(JSON_UNQUOTE(JSON_EXTRACT(value, '$.en'))) LIKE ?",
-                        [strtolower($letter) . '%']
-                    );
-                }
+                $q->whereRaw(
+                    "LOWER(JSON_UNQUOTE(JSON_EXTRACT(value, '$.{$locale}'))) LIKE ?",
+                    [$value . '%']
+                );
             });
         }
+
+        /*
+ * Search.
+ */
         if ($search !== '') {
             $searchLike = '%' . $search . '%';
 
-            $query->where(function ($q) use ($search, $searchLike) {
+            $query->where(function ($q) use (
+                $search,
+                $searchLike,
+                $locales
+            ) {
+                /*
+         * ID
+         */
                 if (is_numeric($search)) {
-                    $q->orWhere('id', $search);   // exact ID match
-                    $q->orWhere('id', 'like', $searchLike);
+                    $q->where('id', (int) $search)
+                        ->orWhere('id', 'like', $searchLike);
                 }
 
+                /*
+         * Book value + type in every language.
+         */
+                foreach ($locales as $code) {
+                    $q->orWhereRaw(
+                        "JSON_UNQUOTE(JSON_EXTRACT(value, '$.{$code}')) LIKE ?",
+                        [$searchLike]
+                    );
+
+                    $q->orWhereRaw(
+                        "JSON_UNQUOTE(JSON_EXTRACT(type, '$.{$code}')) LIKE ?",
+                        [$searchLike]
+                    );
+                }
 
                 /*
-             * Book value
-             */
-                $q->whereRaw(
-                    "JSON_UNQUOTE(JSON_EXTRACT(value, '$.en')) LIKE ?",
-                    [$searchLike]
-                )
-                    ->orWhereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(value, '$.gu')) LIKE ?",
-                        [$searchLike]
-                    )
+         * Related Pads – FIXED
+         */
+                $q->orWhereHas(
+                    'pads',
+                    function ($padQuery) use (
+                        $searchLike,
+                        $locales
+                    ) {
+                        // Wrap all pad-level conditions so foreign key stays AND
+                        $padQuery->where(function ($pq) use ($searchLike, $locales) {
+                            /*
+                     * Pad title + value.
+                     */
+                            foreach ($locales as $code) {
+                                $pq->orWhereRaw(
+                                    "JSON_UNQUOTE(JSON_EXTRACT(title, '$.{$code}')) LIKE ?",
+                                    [$searchLike]
+                                );
 
-                    /*
-             * Book type
-             */
-                    ->orWhereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(type, '$.en')) LIKE ?",
-                        [$searchLike]
-                    )
-                    ->orWhereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(type, '$.gu')) LIKE ?",
-                        [$searchLike]
-                    )
+                                $pq->orWhereRaw(
+                                    "JSON_UNQUOTE(JSON_EXTRACT(value, '$.{$code}')) LIKE ?",
+                                    [$searchLike]
+                                );
+                            }
 
-                    /*
-             * Related Pads
-             */
-                    ->orWhereHas('pads', function ($padQuery) use ($searchLike) {
+                            /*
+                     * Normal Pad fields.
+                     */
+                            $pq->orWhere('status', 'LIKE', $searchLike)
+                                ->orWhere('establish_date', 'LIKE', $searchLike);
+                        })
 
-                        /*
-                 * Pad title
+                            /*
+                 * Pad Categories – FIXED
                  */
-                        $padQuery
-                            ->whereRaw(
-                                "JSON_UNQUOTE(JSON_EXTRACT(title, '$.en')) LIKE ?",
-                                [$searchLike]
+                            ->orWhereHas(
+                                'categories',
+                                function ($categoryQuery) use (
+                                    $searchLike,
+                                    $locales
+                                ) {
+                                    $categoryQuery->where(function ($cq) use ($searchLike, $locales) {
+                                        foreach ($locales as $code) {
+                                            $cq->orWhereRaw(
+                                                "JSON_UNQUOTE(JSON_EXTRACT(type, '$.{$code}')) LIKE ?",
+                                                [$searchLike]
+                                            );
+
+                                            $cq->orWhereRaw(
+                                                "JSON_UNQUOTE(JSON_EXTRACT(value, '$.{$code}')) LIKE ?",
+                                                [$searchLike]
+                                            );
+                                        }
+                                    });
+                                }
                             )
-                            ->orWhereRaw(
-                                "JSON_UNQUOTE(JSON_EXTRACT(title, '$.gu')) LIKE ?",
-                                [$searchLike]
-                            )
 
                             /*
-                     * Pad lyrics / value
-                     */
-                            ->orWhereRaw(
-                                "JSON_UNQUOTE(JSON_EXTRACT(value, '$.en')) LIKE ?",
-                                [$searchLike]
-                            )
-                            ->orWhereRaw(
-                                "JSON_UNQUOTE(JSON_EXTRACT(value, '$.gu')) LIKE ?",
-                                [$searchLike]
-                            )
+                 * Recorded Version – FIXED
+                 */
+                            ->orWhereHas(
+                                'recordedVersion',
+                                function ($recordingQuery) use (
+                                    $searchLike,
+                                    $locales
+                                ) {
+                                    $recordingQuery->where(function ($rq) use ($searchLike, $locales) {
+                                        foreach ($locales as $code) {
+                                            $rq->orWhereRaw(
+                                                "JSON_UNQUOTE(JSON_EXTRACT(singer, '$.{$code}')) LIKE ?",
+                                                [$searchLike]
+                                            );
 
-                            /*
-                     * Pad status
-                     */
-                            ->orWhere('status', 'LIKE', $searchLike)
+                                            $rq->orWhereRaw(
+                                                "JSON_UNQUOTE(JSON_EXTRACT(publisher, '$.{$code}')) LIKE ?",
+                                                [$searchLike]
+                                            );
 
-                            /*
-                     * Establish date
-                     */
-                            ->orWhere('establish_date', 'LIKE', $searchLike)
+                                            $rq->orWhereRaw(
+                                                "JSON_UNQUOTE(JSON_EXTRACT(vocalization, '$.{$code}')) LIKE ?",
+                                                [$searchLike]
+                                            );
+                                        }
 
-                            /*
-                     * Pad Categories
-                     */
-                            ->orWhereHas('categories', function ($categoryQuery) use ($searchLike) {
-
-                                $categoryQuery
-                                    ->whereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(type, '$.en')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(type, '$.gu')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(value, '$.en')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(value, '$.gu')) LIKE ?",
-                                        [$searchLike]
-                                    );
-                            })
-
-                            /*
-                     * Recorded Version
-                     */
-                            ->orWhereHas('recordedVersion', function ($recordingQuery) use ($searchLike) {
-
-                                $recordingQuery
-                                    ->whereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(singer, '$.en')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(singer, '$.gu')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(publisher, '$.en')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(publisher, '$.gu')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(vocalization, '$.en')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(vocalization, '$.gu')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhere('media_type', 'LIKE', $searchLike)
-                                    ->orWhere('recording_type', 'LIKE', $searchLike)
-                                    ->orWhere('file_url', 'LIKE', $searchLike);
-                            });
-                    });
+                                        $rq->orWhere('media_type', 'LIKE', $searchLike)
+                                            ->orWhere('recording_type', 'LIKE', $searchLike)
+                                            ->orWhere('file_url', 'LIKE', $searchLike);
+                                    });
+                                }
+                            );
+                    }
+                );
             });
         }
-
         $books = $query
             ->latest()
             ->paginate(10)
             ->withQueryString();
 
-        return Inertia::render('Admin/Categories/Book/BookList', [
-            'books' => $books,
-            'filters' => [
-                'search' => $search,
-                'letter' => $letter,
-            ],
-            'locale' => $locale,
-        ]);
+        return Inertia::render(
+            'Admin/Categories/Book/BookList',
+            [
+                'books' => $books,
+
+                'filters' => [
+                    'search' => $search,
+                    'letter' => $letter,
+                ],
+
+                'locale' => $locale,
+
+                'languages' => $this->getLanguages(),
+            ]
+        );
     }
 
+    /**
+     * Book Form.
+     */
     public function bookForm()
     {
-        return Inertia::render('Admin/Categories/Book/BookForm', [
-            'locale' => app()->getLocale(),
-        ]);
+        $locale = $this->resolveLocale();
+
+        return Inertia::render(
+            'Admin/Categories/Book/BookForm',
+            [
+                'locale' => $locale,
+                'languages' => $this->getLanguages(),
+            ]
+        );
     }
 
+    /**
+     * Store Book.
+     */
+    public function bookStore(
+        $rolePrefix,
+        Request $request
+    ) {
+        $locales = $this->supportedLocales();
 
-    public function bookStore($rolePrefix, Request $request)
-    {
-        // dd($request->all());
-        $request->validate([
-            'value.en' => ['nullable', 'string', 'max:255'],
-            'value.gu' => ['nullable', 'string', 'max:255'],
-        ]);
+        /*
+         * Dynamic validation rules.
+         */
+        $rules = [];
 
-        $value = [
-            'en' => $request->input('value.en', ''),
-            'gu' => $request->input('value.gu', ''),
-        ];
+        foreach ($locales as $locale) {
+            $rules["value.{$locale}"] = [
+                'nullable',
+                'string',
+                'max:255',
+            ];
+        }
 
-        // At least one language is required
-        if (empty(trim($value['en'])) && empty(trim($value['gu']))) {
+        $request->validate($rules);
+
+        /*
+         * Build multilingual value dynamically.
+         */
+        $value = [];
+
+        foreach ($locales as $locale) {
+            $value[$locale] = trim(
+                $request->input(
+                    "value.{$locale}",
+                    ''
+                )
+            );
+        }
+
+        /*
+         * At least one language is required.
+         */
+        $hasValue = collect($value)
+            ->contains(
+                fn($item) =>
+                is_string($item) &&
+                    trim($item) !== ''
+            );
+
+        if (!$hasValue) {
+            $errorLocale = $this->resolveLocale(
+                $request->input('locale')
+            );
+
             return back()
                 ->withErrors([
-                    'value.en' => 'Book name is required.',
+                    "value.{$errorLocale}" => $this->translation(
+                        'book_name_required',
+                        $errorLocale,
+                        'Book name is required.'
+                    ),
                 ])
                 ->withInput();
         }
 
+        /*
+         * Dynamic Book type.
+         */
+        $type = [];
+
+        foreach ($locales as $locale) {
+            $type[$locale] = $this->categoryTypeTranslation(
+                $locale,
+                $locale === 'en' ? 'Book' : ''
+            );
+        }
+
         Category::create([
-            'type' => [
-                'en' => 'Book',
-                'gu' => 'પુસ્તક',
-            ],
+            'type' => $type,
             'value' => $value,
             'created_by' => auth()->id(),
         ]);
 
         return redirect()
-            ->route('role.category.booklist', [
-                'rolePrefix' => $rolePrefix,
-            ])
-            ->with('success', $locale === 'gu'
-                ? 'પુસ્તક સફળતાપૂર્વક ઉમેરવામાં આવ્યું.'
-                : 'Book created successfully.');
+            ->route(
+                'role.category.booklist',
+                [
+                    'rolePrefix' => $rolePrefix,
+                ]
+            )
+            ->with(
+                'success',
+                'book_created_success'
+            );
     }
 
-
-
-
-    public function bookEdit($rolePrefix, Category $book)
-    {
-        // dd($book);
-        $typeEn = $book->getTranslation('type', 'en', false);
-        if ($typeEn !== 'Book') {
+    /**
+     * Edit Book.
+     */
+    public function bookEdit(
+        $rolePrefix,
+        Category $book
+    ) {
+        if (!$this->isBook($book)) {
             abort(404);
         }
 
-        return Inertia::render('Admin/Categories/Book/BookForm', [
-            'book' => [
-                'id'    => $book->id,
-                'value' => [
-                    'en' => $book->getTranslation('value', 'en', false) ?: '',
-                    'gu' => $book->getTranslation('value', 'gu', false) ?: '',
+        $locale = $this->resolveLocale();
+
+        return Inertia::render(
+            'Admin/Categories/Book/BookForm',
+            [
+                'book' => [
+                    'id' => $book->id,
+
+                    'value' => $this->getLanguageValues(
+                        $book,
+                        'value'
+                    ),
                 ],
-            ],
-        ]);
+
+                'locale' => $locale,
+
+                'languages' => $this->getLanguages(),
+            ]
+        );
     }
 
-    public function bookUpdate($rolePrefix, Request $request, Category $book)
-    {
-        $locale = $request->input('locale', app()->getLocale());
-        if (! in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
+    /**
+     * Update Book.
+     */
+    public function bookUpdate(
+        $rolePrefix,
+        Request $request,
+        Category $book
+    ) {
+        if (!$this->isBook($book)) {
+            abort(404);
         }
 
-        $validated = $request->validate([
-            'value.en' => ['nullable', 'string', 'max:255'],
-            'value.gu' => ['nullable', 'string', 'max:255'],
-            'locale'   => ['nullable', 'string', 'in:en,gu'],
-        ]);
+        $locales = $this->supportedLocales();
 
-        $valueEn = trim($validated['value']['en'] ?? '');
-        $valueGu = trim($validated['value']['gu'] ?? '');
+        $locale = $this->resolveLocale(
+            $request->input('locale')
+        );
 
-        if ($valueEn === '' && $valueGu === '') {
-            return back()->withErrors([
-                "value.{$locale}" => $locale === 'gu'
-                    ? 'પુસ્તકનુ નામ જરૂરી છે.'
-                    : 'Book name is required.',
-            ])->withInput();
+        /*
+         * Dynamic validation.
+         */
+        $rules = [
+            'locale' => [
+                'nullable',
+                'string',
+            ],
+        ];
+
+        foreach ($locales as $code) {
+            $rules["value.{$code}"] = [
+                'nullable',
+                'string',
+                'max:255',
+            ];
         }
 
-        $book->setTranslation('type', 'en', 'Book');
-        $book->setTranslation('type', 'gu', 'પુસ્તક');
-        $book->setTranslation('value', 'en', $valueEn);
-        $book->setTranslation('value', 'gu', $valueGu);
+        $validated = $request->validate(
+            $rules
+        );
+
+        /*
+         * Build multilingual values.
+         */
+        $value = [];
+
+        foreach ($locales as $code) {
+            $value[$code] = trim(
+                $validated['value'][$code] ?? ''
+            );
+        }
+
+        /*
+         * At least one language is required.
+         */
+        $hasValue = collect($value)
+            ->contains(
+                fn($item) =>
+                is_string($item) &&
+                    trim($item) !== ''
+            );
+
+        if (!$hasValue) {
+            return back()
+                ->withErrors([
+                    "value.{$locale}" => $this->translation(
+                        'book_name_required',
+                        $locale,
+                        'Book name is required.'
+                    ),
+                ])
+                ->withInput();
+        }
+
+        /*
+         * Update Book type dynamically.
+         */
+        foreach ($locales as $code) {
+            $book->setTranslation(
+                'type',
+                $code,
+                $this->categoryTypeTranslation(
+                    $code,
+                    $code === 'en' ? 'Book' : ''
+                )
+            );
+        }
+
+        /*
+         * Update value dynamically.
+         */
+        foreach ($locales as $code) {
+            $book->setTranslation(
+                'value',
+                $code,
+                $value[$code]
+            );
+        }
+
         $book->save();
 
         return redirect()
-            ->route('role.category.booklist', [
-                'rolePrefix' => $rolePrefix,
-            ])
-            ->with('success', $locale === 'gu'
-                ? 'પુસ્તક અપડેટ થયું.'
-                : 'Book updated successfully.');
+            ->route(
+                'role.category.booklist',
+                [
+                    'rolePrefix' => $rolePrefix,
+                ]
+            )
+            ->with(
+                'success',
+                'book_updated_success'
+            );
     }
 
-
-    public function bookPadsShow($rolePrefix, Category $book)
-    {
-        // dd('');
-        $locale = app()->getLocale();
-        if (! in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
+    /**
+     * Show Pads belonging to a Book.
+     */
+    public function bookPadsShow(
+        $rolePrefix,
+        Category $book
+    ) {
+        if (!$this->isBook($book)) {
+            abort(
+                404,
+                $this->translation(
+                    'not_a_book',
+                    $this->resolveLocale(),
+                    'This category is not a Book.'
+                )
+            );
         }
 
-        // Only allow Creator type categories
-        $typeEn = $book->getTranslation('type', 'en', false);
-        $typeGu = $book->getTranslation('type', 'gu', false);
+        $locale = $this->resolveLocale();
 
-        if (
-            ! in_array(strtolower($typeEn), ['book']) &&
-            ! in_array($typeGu, ['રચયિતા', 'રચયિતા'])
-        ) {
-            abort(404, 'This category is not a Creator.');
-        }
-
-        // Helper to resolve translatable fields
-        $t = function ($model, string $field) use ($locale): string {
-            if (! $model) {
-                return '';
-            }
-
-            $value = $model->getTranslation($field, $locale, false)
-                ?: $model->getTranslation($field, 'en', false)
-                ?: $model->getTranslation($field, 'gu', false);
-
-            return is_string($value) ? $value : '';
-        };
-
-        // Get all Pads that have this category
-        $pads = $book->pads()                          // ← relation must exist
+        /*
+         * Get Pads linked to this Book.
+         */
+        $pads = $book
+            ->pads()
             ->with([
                 'categories:id,type,value',
                 'recordedVersion',
             ])
             ->latest()
             ->get()
-            ->map(function ($pad) use ($t) {
+            ->map(function ($pad) use ($locale) {
                 return [
-                    'id'             => $pad->id,
-                    'title'          => $t($pad, 'title'),
-                    'value'          => $t($pad, 'value'),
-                    'status'         => $pad->status,
-                    'establish_date' => $pad->establish_date
-                        ? \Carbon\Carbon::parse($pad->establish_date)->format('Y-m-d')
-                        : null,
-                    'created_at'     => optional($pad->created_at)?->toIso8601String(),
-                    'updated_at'     => optional($pad->updated_at)?->toIso8601String(),
-                    'categories'     => $pad->categories->map(fn($c) => [
-                        'id'    => $c->id,
-                        'type'  => $t($c, 'type'),
-                        'value' => $t($c, 'value'),
-                    ])->values(),
-                    'recorded_version' => $pad->recordedVersion ? [
-                        'id'             => $pad->recordedVersion->id,
-                        'media_type'     => $pad->recordedVersion->media_type,
-                        'file_url'       => $pad->recordedVersion->file_url,
-                        'singer'         => $t($pad->recordedVersion, 'singer'),
-                        'publisher'      => $t($pad->recordedVersion, 'publisher'),
-                        'vocalization'   => $t($pad->recordedVersion, 'vocalization'),
-                        'recording_type' => $pad->recordedVersion->recording_type,
-                    ] : null,
-                ];
-            });
+                    'id' => $pad->id,
 
+                    'title' => $this->translatedValue(
+                        $pad,
+                        'title',
+                        $locale
+                    ),
+
+                    'value' => $this->translatedValue(
+                        $pad,
+                        'value',
+                        $locale
+                    ),
+
+                    'status' => $pad->status,
+
+                    'establish_date' => $pad->establish_date
+                        ? Carbon::parse(
+                            $pad->establish_date
+                        )->format('Y-m-d')
+                        : null,
+
+                    'created_at' => optional(
+                        $pad->created_at
+                    )?->toIso8601String(),
+
+                    'updated_at' => optional(
+                        $pad->updated_at
+                    )?->toIso8601String(),
+
+                    'categories' => $pad->categories
+                        ->map(
+                            fn($category) => [
+                                'id' => $category->id,
+
+                                'type' => $this->translatedValue(
+                                    $category,
+                                    'type',
+                                    $locale
+                                ),
+
+                                'value' => $this->translatedValue(
+                                    $category,
+                                    'value',
+                                    $locale
+                                ),
+                            ]
+                        )
+                        ->values(),
+
+                    'recorded_version' =>
+                    $pad->recordedVersion
+                        ? [
+                            'id' =>
+                            $pad->recordedVersion->id,
+
+                            'media_type' =>
+                            $pad->recordedVersion->media_type,
+
+                            'file_url' =>
+                            $pad->recordedVersion->file_url,
+
+                            'singer' =>
+                            $this->translatedValue(
+                                $pad->recordedVersion,
+                                'singer',
+                                $locale
+                            ),
+
+                            'publisher' =>
+                            $this->translatedValue(
+                                $pad->recordedVersion,
+                                'publisher',
+                                $locale
+                            ),
+
+                            'vocalization' =>
+                            $this->translatedValue(
+                                $pad->recordedVersion,
+                                'vocalization',
+                                $locale
+                            ),
+
+                            'recording_type' =>
+                            $pad->recordedVersion->recording_type,
+                        ]
+                        : null,
+                ];
+            })
+            ->values();
+
+        /*
+         * Send the complete multilingual Book object.
+         */
         $bookPayload = [
-            'id'    => $book->id,
-            'name'  => $t($book, 'value'),   // "Bramhanand swami" / "બ્રહ્માનંદ સ્વામી"
-            'type'  => $t($book, 'type'),    // "Creator" / "રચયિતા"
+            'id' => $book->id,
+
+            'name' => $this->getLanguageValues(
+                $book,
+                'value'
+            ),
+
+            'type' => $this->getLanguageValues(
+                $book,
+                'type'
+            ),
         ];
 
-        return Inertia::render('Admin/Categories/Book/BookShowPads', [
-            'swami'  => $bookPayload,   // keep key name "swami" for frontend
-            'pads'   => $pads,
-            'locale' => $locale,
-        ]);
+        return Inertia::render(
+            'Admin/Categories/Book/BookShowPads',
+            [
+                'book' => $bookPayload,
+
+                'pads' => $pads,
+
+                'locale' => $locale,
+
+                'languages' => $this->getLanguages(),
+            ]
+        );
     }
 
-
-    public function bookDestroy($rolePrefix, Request $request, $id)
-    {
+    /**
+     * Delete single Book.
+     */
+    public function bookDestroy(
+        $rolePrefix,
+        Request $request,
+        $id
+    ) {
         $book = Category::findOrFail($id);
 
-        // Make sure this category is actually Book
-        $typeEn = $book->getTranslation('type', 'en', false);
-
-        if ($typeEn !== 'Book') {
+        if (!$this->isBook($book)) {
             abort(404);
         }
 
-        $locale = app()->getLocale();
-
-        $deleteRelatedPads = $request->boolean('delete_related_pads');
+        $deleteRelatedPads =
+            $request->boolean(
+                'delete_related_pads'
+            );
 
         if ($deleteRelatedPads) {
+            $padIds = $book
+                ->pads()
+                ->pluck('pads.id');
 
-            // Get only pads linked to this Book
-            $padIds = $book->pads()->pluck('pads.id');
-
-            // Delete related pads
             if ($padIds->isNotEmpty()) {
-                \App\Models\Pad::whereIn('id', $padIds)->delete();
+                Pad::whereIn(
+                    'id',
+                    $padIds
+                )->delete();
             }
         }
 
-        // Delete Book
         $book->delete();
 
         $message = $deleteRelatedPads
-            ? ($locale === 'gu'
-                ? 'પુસ્તક અને તેના બધા પદો સફળતાપૂર્વક કાઢી નાખ્યા.'
-                : 'Book and its related pads deleted successfully.')
-            : ($locale === 'gu'
-                ? 'પુસ્તક સફળતાપૂર્વક કાઢી નાખ્યું.'
-                : 'Book deleted successfully.');
+            ? 'book_and_pads_deleted_success'
+            : 'book_deleted_success';
 
-        return back()->with('success', $message);
+        return back()->with(
+            'success',
+            $message
+        );
     }
 
-
-    public function bulkDestroy($rolePrefix, Request $request)
-    {
+    /**
+     * Bulk delete Books.
+     */
+    public function bulkDestroy(
+        $rolePrefix,
+        Request $request
+    ) {
         $request->validate([
-            'ids'   => 'required|array',
-            'ids.*' => 'integer|exists:categories,id',
+            'ids' => [
+                'required',
+                'array',
+            ],
+
+            'ids.*' => [
+                'integer',
+                'exists:categories,id',
+            ],
         ]);
 
-        $ids = $request->input('ids', []);
-        $deletePads = $request->boolean('delete_related_pads');
-        $locale = app()->getLocale();
+        $ids = $request->input(
+            'ids',
+            []
+        );
 
         if (empty($ids)) {
             return back()->with(
                 'error',
-                $locale === 'gu'
-                    ? 'કોઈ પુસ્તક પસંદ કરવામાં આવ્યું નથી.'
-                    : 'No books selected.'
+                'select_at_least_one_book'
             );
         }
 
-        $books = Category::whereIn('id', $ids)->get();
+        /*
+         * IMPORTANT:
+         * Only select actual Book categories.
+         */
+        $books = Category::whereIn(
+            'id',
+            $ids
+        )
+            ->get()
+            ->filter(
+                fn($category) =>
+                $this->isBook($category)
+            )
+            ->values();
+
+        if ($books->isEmpty()) {
+            return back()->with(
+                'error',
+                'select_at_least_one_book'
+            );
+        }
+
+        $deletePads =
+            $request->boolean(
+                'delete_related_pads'
+            );
 
         if ($deletePads) {
             foreach ($books as $book) {
+                $padIds = $book
+                    ->pads()
+                    ->pluck('pads.id');
 
-                // Get only pads linked to this Book
-                $padIds = $book->pads()->pluck('pads.id');
-
-                // Delete actual pads
                 if ($padIds->isNotEmpty()) {
-                    \App\Models\Pad::whereIn('id', $padIds)->delete();
+                    Pad::whereIn(
+                        'id',
+                        $padIds
+                    )->delete();
                 }
             }
         }
 
-        // Delete Books
-        Category::whereIn('id', $ids)->delete();
+        /*
+         * Delete only the Book IDs.
+         */
+        Category::whereIn(
+            'id',
+            $books->pluck('id')
+        )->delete();
 
         $message = $deletePads
-            ? ($locale === 'gu'
-                ? 'પુસ્તકો અને તેમના બધા પદો સફળતાપૂર્વક કાઢી નાખવામાં આવ્યા.'
-                : 'Books and their related pads deleted successfully.')
-            : ($locale === 'gu'
-                ? 'પુસ્તકો સફળતાપૂર્વક કાઢી નાખવામાં આવ્યા.'
-                : 'Books deleted successfully.');
+            ? 'books_and_pads_deleted_success'
+            : 'books_deleted_success';
 
-        return back()->with('success', $message);
+        return back()->with(
+            'success',
+            $message
+        );
     }
 }

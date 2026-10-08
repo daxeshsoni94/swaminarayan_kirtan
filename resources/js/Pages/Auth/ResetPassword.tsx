@@ -1,11 +1,9 @@
-//formik
-import { useFormik } from "formik";
-import * as Yup from "yup";
+import React, { useState } from "react";
 import GuestLayout from "../../Layouts/GuestLayout";
-import { Head, Link, router } from "@inertiajs/react";
-import { useState } from "react";
+import { Head, Link, router, usePage } from "@inertiajs/react";
 import { Button, Card, Col, Container, Form, Row } from "react-bootstrap";
-import logoLight from "../../../images/logo-light.png";
+import defaultLogo from "../../../images/logo-light.png";
+import LanguageSwitcher from "../../Components/LanguageSwitcher";
 
 interface ResetPasswordProps {
     email: string;
@@ -13,44 +11,88 @@ interface ResetPasswordProps {
 }
 
 const ResetPassword = ({ email, token }: ResetPasswordProps) => {
-    const [passwordShow, setPasswordShow] = useState<boolean>(false);
-    const [confrimPasswordShow, setConfrimPasswordShow] =
-        useState<boolean>(false);
+    const { translations = {}, settings = {} } = usePage().props as any;
 
-    const validation = useFormik({
-        enableReinitialize: true,
+    const tr = (key: string) => translations[key] ?? key;
 
-        initialValues: {
-            email: email,
-            token: token,
-            password: "",
-            password_confirmation: "",
-        },
-        validationSchema: Yup.object({
-            password: Yup.string()
-                .min(8, "Password must be at least 8 characters")
-                .matches(RegExp("(.*[a-z].*)"), "At least lowercase letter")
-                .matches(RegExp("(.*[A-Z].*)"), "At least uppercase letter")
-                .matches(RegExp("(.*[0-9].*)"), "At least one number")
-                .required("This field is required"),
-            password_confirmation: Yup.string()
-                .oneOf([Yup.ref("password")], "Passwords must match")
-                .required("Confirm Password is required"),
-        }),
-        onSubmit: (e: any) => {
-            // e.preventDefault();
+    const logoUrl = settings.app_logo
+        ? `/storage/${settings.app_logo}`
+        : defaultLogo;
 
-            router.post(route("password.store"), {
-                email: email,
-                token: token,
-                password: validation.values.password,
-                password_confirmation: validation.values.password_confirmation,
-            });
-        },
-    });
+    const [passwordShow, setPasswordShow] = useState(false);
+    const [confirmPasswordShow, setConfirmPasswordShow] = useState(false);
+
+    const [password, setPassword] = useState("");
+    const [passwordConfirmation, setPasswordConfirmation] = useState("");
+
+    const [errors, setErrors] = useState<{
+        password?: string;
+        password_confirmation?: string;
+    }>({});
+
+    const [processing, setProcessing] = useState(false);
+
+    const validatePassword = () => {
+        const newErrors: {
+            password?: string;
+            password_confirmation?: string;
+        } = {};
+
+        if (!password) {
+            newErrors.password = tr("password_required");
+        } else if (password.length < 8) {
+            newErrors.password = tr("password_min_length");
+        } else if (!/[a-z]/.test(password)) {
+            newErrors.password = tr("password_lowercase");
+        } else if (!/[A-Z]/.test(password)) {
+            newErrors.password = tr("password_uppercase");
+        } else if (!/[0-9]/.test(password)) {
+            newErrors.password = tr("password_number");
+        }
+
+        if (!passwordConfirmation) {
+            newErrors.password_confirmation = tr("confirm_password_required");
+        } else if (password !== passwordConfirmation) {
+            newErrors.password_confirmation = tr("passwords_must_match");
+        }
+
+        setErrors(newErrors);
+
+        return Object.keys(newErrors).length === 0;
+    };
+
+    const submit = (e: React.FormEvent) => {
+        e.preventDefault();
+
+        if (!validatePassword()) {
+            return;
+        }
+
+        setProcessing(true);
+
+        router.post(
+            route("password.store"),
+            {
+                email,
+                token,
+                password,
+                password_confirmation: passwordConfirmation,
+            },
+            {
+                onFinish: () => setProcessing(false),
+            },
+        );
+    };
+
     return (
         <GuestLayout>
-            <Head title="Create New Password | Velzon - React Admin & Dashboard Template" />
+            <Head title={tr("create_new_password")} />
+
+            {/* Language Switcher */}
+            <div className="position-absolute top-0 end-0 p-3 z-3">
+                <LanguageSwitcher />
+            </div>
+
             <div className="auth-page-content mt-lg-5">
                 <Container>
                     <Row>
@@ -62,239 +104,286 @@ const ResetPassword = ({ email, token }: ResetPasswordProps) => {
                                         className="d-inline-block auth-logo"
                                     >
                                         <img
-                                            src={logoLight}
-                                            alt=""
-                                            height="20"
+                                            src={logoUrl}
+                                            alt={tr("app_logo")}
+                                            height="60"
+                                            style={{
+                                                borderRadius: "30px",
+                                            }}
+                                            onError={(e) => {
+                                                e.currentTarget.src =
+                                                    defaultLogo;
+                                            }}
                                         />
                                     </Link>
                                 </div>
+
                                 <p className="mt-3 fs-15 fw-medium">
-                                    Premium Admin & Dashboard Template
+                                    {tr("auth_tagline")}
                                 </p>
                             </div>
                         </Col>
                     </Row>
+
                     <Row className="justify-content-center">
                         <Col md={8} lg={6} xl={5}>
                             <Card className="mt-4">
                                 <Card.Body className="p-4">
                                     <div className="text-center mt-2">
                                         <h5 className="text-primary">
-                                            Create new password
+                                            {tr("create_new_password")}
                                         </h5>
+
                                         <p className="text-muted">
-                                            Your new password must be different
-                                            from previous used password.
+                                            {tr("new_password_description")}
                                         </p>
                                     </div>
 
-                                    <div className="p-2">
-                                        <Form
-                                            onSubmit={validation.handleSubmit}
-                                            action="/auth-signin-basic"
-                                        >
+                                    <div className="p-2 mt-4">
+                                        <Form onSubmit={submit}>
+                                            {/* Password */}
                                             <div className="mb-3">
-                                                <Form.Label
-                                                    className="form-label"
-                                                    htmlFor="password-input"
-                                                >
-                                                    Password
+                                                <Form.Label htmlFor="password">
+                                                    {tr("password")}
                                                 </Form.Label>
+
+                                                <span className="text-danger ms-1">
+                                                    *
+                                                </span>
+
                                                 <div className="position-relative auth-pass-inputgroup">
                                                     <Form.Control
+                                                        id="password"
+                                                        name="password"
                                                         type={
                                                             passwordShow
                                                                 ? "text"
                                                                 : "password"
                                                         }
-                                                        className="form-control pe-5 password-input"
-                                                        placeholder="Enter password"
-                                                        id="password-input"
-                                                        name="password"
-                                                        value={
-                                                            validation.values
-                                                                .password
+                                                        value={password}
+                                                        placeholder={tr(
+                                                            "password_placeholder",
+                                                        )}
+                                                        className={
+                                                            "form-control pe-5 password-input " +
+                                                            (errors.password
+                                                                ? "is-invalid"
+                                                                : "")
                                                         }
-                                                        onBlur={
-                                                            validation.handleBlur
-                                                        }
-                                                        onChange={
-                                                            validation.handleChange
-                                                        }
-                                                        isInvalid={
-                                                            validation.errors
-                                                                .password &&
-                                                            validation.touched
-                                                                .password
-                                                                ? true
-                                                                : false
-                                                        }
-                                                    />
-                                                    {validation.errors
-                                                        .password &&
-                                                    validation.touched
-                                                        .password ? (
-                                                        <Form.Control.Feedback type="invalid">
-                                                            {
-                                                                validation
-                                                                    .errors
-                                                                    .password
+                                                        autoComplete="new-password"
+                                                        onChange={(e) => {
+                                                            setPassword(
+                                                                e.target.value,
+                                                            );
+
+                                                            if (
+                                                                errors.password
+                                                            ) {
+                                                                setErrors(
+                                                                    (prev) => ({
+                                                                        ...prev,
+                                                                        password:
+                                                                            undefined,
+                                                                    }),
+                                                                );
                                                             }
+                                                        }}
+                                                    />
+
+                                                    {errors.password && (
+                                                        <Form.Control.Feedback
+                                                            type="invalid"
+                                                            className="d-block"
+                                                        >
+                                                            {errors.password}
                                                         </Form.Control.Feedback>
-                                                    ) : null}
-                                                    <Button
-                                                        variant="link"
+                                                    )}
+
+                                                    <button
+                                                        className="btn btn-link position-absolute end-0 top-0 text-decoration-none text-muted"
+                                                        type="button"
                                                         onClick={() =>
                                                             setPasswordShow(
                                                                 !passwordShow,
                                                             )
                                                         }
-                                                        className="position-absolute end-0 top-0 text-decoration-none text-muted password-addon"
-                                                        type="button"
-                                                        id="password-addon"
                                                     >
-                                                        <i className="ri-eye-fill align-middle"></i>
-                                                    </Button>
+                                                        <i
+                                                            className={
+                                                                passwordShow
+                                                                    ? "ri-eye-fill align-middle"
+                                                                    : "ri-eye-off-fill align-middle"
+                                                            }
+                                                        />
+                                                    </button>
                                                 </div>
-                                                {/* <div id="passwordInput" className="form-text">Must be at least 8 characters.</div> */}
                                             </div>
 
+                                            {/* Confirm Password */}
                                             <div className="mb-3">
-                                                <Form.Label
-                                                    className="form-label"
-                                                    htmlFor="confirm-password-input"
-                                                >
-                                                    Confirm Password
+                                                <Form.Label htmlFor="password_confirmation">
+                                                    {tr("confirm_password")}
                                                 </Form.Label>
+
+                                                <span className="text-danger ms-1">
+                                                    *
+                                                </span>
+
                                                 <div className="position-relative auth-pass-inputgroup mb-3">
                                                     <Form.Control
+                                                        id="password_confirmation"
+                                                        name="password_confirmation"
                                                         type={
-                                                            confrimPasswordShow
+                                                            confirmPasswordShow
                                                                 ? "text"
                                                                 : "password"
                                                         }
-                                                        className="form-control pe-5 password-input"
-                                                        placeholder="Confirm password"
-                                                        id="confirm-password-input"
-                                                        name="password_confirmation"
                                                         value={
-                                                            validation.values
-                                                                .password_confirmation
+                                                            passwordConfirmation
                                                         }
-                                                        onBlur={
-                                                            validation.handleBlur
+                                                        placeholder={tr(
+                                                            "confirm_password_placeholder",
+                                                        )}
+                                                        className={
+                                                            "form-control pe-5 password-input " +
+                                                            (errors.password_confirmation
+                                                                ? "is-invalid"
+                                                                : "")
                                                         }
-                                                        onChange={
-                                                            validation.handleChange
-                                                        }
-                                                        isInvalid={
-                                                            validation.errors
-                                                                .password_confirmation &&
-                                                            validation.touched
-                                                                .password_confirmation
-                                                                ? true
-                                                                : false
-                                                        }
+                                                        autoComplete="new-password"
+                                                        onChange={(e) => {
+                                                            setPasswordConfirmation(
+                                                                e.target.value,
+                                                            );
+
+                                                            if (
+                                                                errors.password_confirmation
+                                                            ) {
+                                                                setErrors(
+                                                                    (prev) => ({
+                                                                        ...prev,
+                                                                        password_confirmation:
+                                                                            undefined,
+                                                                    }),
+                                                                );
+                                                            }
+                                                        }}
                                                     />
-                                                    {validation.errors
-                                                        .confirm_password &&
-                                                    validation.touched
-                                                        .confirm_password ? (
-                                                        <Form.Control.Feedback type="invalid">
+
+                                                    {errors.password_confirmation && (
+                                                        <Form.Control.Feedback
+                                                            type="invalid"
+                                                            className="d-block"
+                                                        >
                                                             {
-                                                                validation
-                                                                    .errors
-                                                                    .confirm_password
+                                                                errors.password_confirmation
                                                             }
                                                         </Form.Control.Feedback>
-                                                    ) : null}
-                                                    <Button
-                                                        variant="link"
+                                                    )}
+
+                                                    <button
+                                                        className="btn btn-link position-absolute end-0 top-0 text-decoration-none text-muted"
+                                                        type="button"
                                                         onClick={() =>
-                                                            setConfrimPasswordShow(
-                                                                !confrimPasswordShow,
+                                                            setConfirmPasswordShow(
+                                                                !confirmPasswordShow,
                                                             )
                                                         }
-                                                        className="position-absolute end-0 top-0 text-decoration-none text-muted password-addon"
-                                                        type="button"
                                                     >
-                                                        <i className="ri-eye-fill align-middle"></i>
-                                                    </Button>
+                                                        <i
+                                                            className={
+                                                                confirmPasswordShow
+                                                                    ? "ri-eye-fill align-middle"
+                                                                    : "ri-eye-off-fill align-middle"
+                                                            }
+                                                        />
+                                                    </button>
                                                 </div>
                                             </div>
 
+                                            {/* Password Requirements */}
                                             <div
                                                 id="password-contain"
                                                 className="p-3 bg-light mb-2 rounded"
                                             >
                                                 <h5 className="fs-13">
-                                                    Password must contain:
+                                                    {tr(
+                                                        "password_must_contain",
+                                                    )}
                                                 </h5>
+
                                                 <p
-                                                    id="pass-length"
-                                                    className="invalid fs-12 mb-2"
+                                                    className={
+                                                        "fs-12 mb-2 " +
+                                                        (password.length >= 8
+                                                            ? "text-success"
+                                                            : "text-muted")
+                                                    }
                                                 >
                                                     Minimum <b>8 characters</b>
                                                 </p>
+
                                                 <p
-                                                    id="pass-lower"
-                                                    className="invalid fs-12 mb-2"
+                                                    className={
+                                                        "fs-12 mb-2 " +
+                                                        (/[a-z]/.test(password)
+                                                            ? "text-success"
+                                                            : "text-muted")
+                                                    }
                                                 >
-                                                    At <b>lowercase</b> letter
-                                                    (a-z)
+                                                    At least <b>lowercase</b>{" "}
+                                                    letter (a-z)
                                                 </p>
+
                                                 <p
-                                                    id="pass-upper"
-                                                    className="invalid fs-12 mb-2"
+                                                    className={
+                                                        "fs-12 mb-2 " +
+                                                        (/[A-Z]/.test(password)
+                                                            ? "text-success"
+                                                            : "text-muted")
+                                                    }
                                                 >
                                                     At least <b>uppercase</b>{" "}
                                                     letter (A-Z)
                                                 </p>
+
                                                 <p
-                                                    id="pass-number"
-                                                    className="invalid fs-12 mb-0"
+                                                    className={
+                                                        "fs-12 mb-0 " +
+                                                        (/[0-9]/.test(password)
+                                                            ? "text-success"
+                                                            : "text-muted")
+                                                    }
                                                 >
-                                                    A least <b>number</b> (0-9)
+                                                    At least <b>number</b> (0-9)
                                                 </p>
                                             </div>
 
-                                            <div className="form-check">
-                                                <Form.Check.Input
-                                                    className="form-check-input"
-                                                    type="checkbox"
-                                                    value=""
-                                                    id="auth-remember-check"
-                                                />
-                                                <Form.Check.Label
-                                                    className="form-check-label"
-                                                    htmlFor="auth-remember-check"
-                                                >
-                                                    Remember me
-                                                </Form.Check.Label>
-                                            </div>
-
+                                            {/* Reset Password Button */}
                                             <div className="mt-4">
                                                 <Button
                                                     className="w-100 btn-success"
                                                     type="submit"
+                                                    disabled={processing}
                                                 >
-                                                    Reset Password
+                                                    {tr("reset_password")}
                                                 </Button>
                                             </div>
                                         </Form>
                                     </div>
                                 </Card.Body>
                             </Card>
+
+                            {/* Back to Login */}
                             <div className="mt-4 text-center">
                                 <p className="mb-0">
-                                    Wait, I remember my password...{" "}
+                                    {tr("remember_password")}{" "}
                                     <Link
-                                        href="/auth-signin-basic"
+                                        href={route("login")}
                                         className="fw-semibold text-primary text-decoration-underline"
                                     >
-                                        {" "}
-                                        Click here{" "}
-                                    </Link>{" "}
+                                        {tr("click_here")}
+                                    </Link>
                                 </p>
                             </div>
                         </Col>

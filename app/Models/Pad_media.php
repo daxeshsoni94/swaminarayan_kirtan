@@ -11,18 +11,23 @@ class Pad_media extends Model
     protected $table = 'pad_media';
 
     public array $translatable = [
+        'file_name',
         'singer',
         'publisher',
         'vocalization',
+        'raga',
     ];
 
     protected $fillable = [
         'pad_id',
         'media_type',
         'file_url',
+        'youtube_url',
+        'file_name',
         'singer',
         'publisher',
         'vocalization',
+        'raga',
         'recording_type',
     ];
 

@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from "react";
 import PropTypes from "prop-types";
-import { Collapse, Container } from 'react-bootstrap';
+import { Collapse, Container } from "react-bootstrap";
 
 import logoSm from "../../../images/logo-sm.png";
 //i18n
@@ -12,7 +12,7 @@ import VerticalLayout from "../VerticalLayouts";
 
 //SimpleBar
 import SimpleBar from "simplebar-react";
-import { Link } from '@inertiajs/react';
+import { Link } from "@inertiajs/react";
 
 const TwoColumnLayout = (props: any) => {
     const navData = navdata().props.children;
@@ -23,24 +23,42 @@ const TwoColumnLayout = (props: any) => {
             // to set aria expand true remaining
             parentCollapseDiv.classList.add("show");
             parentCollapseDiv.parentElement.children[0].classList.add("active");
-            parentCollapseDiv.parentElement.children[0].setAttribute("aria-expanded", "true");
-            if (parentCollapseDiv.parentElement.closest(".collapse.menu-dropdown")) {
-                parentCollapseDiv.parentElement.closest(".collapse").classList.add("show");
-                const parentParentCollapse = parentCollapseDiv.parentElement.closest(".collapse").previousElementSibling;
+            parentCollapseDiv.parentElement.children[0].setAttribute(
+                "aria-expanded",
+                "true",
+            );
+            if (
+                parentCollapseDiv.parentElement.closest(
+                    ".collapse.menu-dropdown",
+                )
+            ) {
+                parentCollapseDiv.parentElement
+                    .closest(".collapse")
+                    .classList.add("show");
+                const parentParentCollapse =
+                    parentCollapseDiv.parentElement.closest(
+                        ".collapse",
+                    ).previousElementSibling;
                 if (parentParentCollapse) {
                     parentParentCollapse.classList.add("active");
-                    if (parentParentCollapse.closest(".collapse.menu-dropdown")) {
-                        parentParentCollapse.closest(".collapse.menu-dropdown").classList.add("show");
+                    if (
+                        parentParentCollapse.closest(".collapse.menu-dropdown")
+                    ) {
+                        parentParentCollapse
+                            .closest(".collapse.menu-dropdown")
+                            .classList.add("show");
                     }
                 }
             }
-            activateIconSidebarActive(parentCollapseDiv.firstChild.getAttribute("id"));
+            activateIconSidebarActive(
+                parentCollapseDiv.firstChild.getAttribute("id"),
+            );
             return false;
         }
         return false;
     }, []);
 
-    const path = window.location.pathname;
+    const path = window.location.pathname + window.location.search;
 
     const initMenu = useCallback(() => {
         const pathName = path;
@@ -49,7 +67,30 @@ const TwoColumnLayout = (props: any) => {
         let itemsArray = [...items]; // converts NodeList to Array
         removeActivation(itemsArray);
         let matchingMenuItem = itemsArray.find((x) => {
-            return x.pathname === pathName;
+            try {
+                const current = new URL(window.location.href);
+                const target = new URL(x.href, window.location.origin);
+
+                if (current.pathname !== target.pathname) {
+                    return false;
+                }
+
+                const currentType = (
+                    current.searchParams.get("custom_type") || ""
+                )
+                    .trim()
+                    .toLowerCase();
+                const targetType = (
+                    target.searchParams.get("custom_type") || ""
+                )
+                    .trim()
+                    .toLowerCase();
+
+                // Exact match on custom_type (both empty = generic Custom Category)
+                return currentType === targetType;
+            } catch {
+                return x.pathname === pathName;
+            }
         });
         if (matchingMenuItem) {
             activateParentDropdown(matchingMenuItem);
@@ -60,25 +101,31 @@ const TwoColumnLayout = (props: any) => {
             } else {
                 id = pathName.replace("/", "");
             }
-            if (id) document.body.classList.add('twocolumn-panel');
+            if (id) document.body.classList.add("twocolumn-panel");
             activateIconSidebarActive(id);
         }
     }, [path, activateParentDropdown]);
 
     useEffect(() => {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        window.scrollTo({ top: 0, behavior: "smooth" });
         initMenu();
     }, [path, initMenu]);
 
     function activateIconSidebarActive(id: any) {
-        var menu = document.querySelector("#two-column-menu .simplebar-content-wrapper a[sub-items='" + id + "'].nav-icon");
+        var menu = document.querySelector(
+            "#two-column-menu .simplebar-content-wrapper a[sub-items='" +
+                id +
+                "'].nav-icon",
+        );
         if (menu !== null) {
             menu.classList.add("active");
         }
     }
 
     const removeActivation = (items: any) => {
-        let activeItems = items.filter((x: any) => x.classList.contains("active"));
+        let activeItems = items.filter((x: any) =>
+            x.classList.contains("active"),
+        );
         activeItems.forEach((item: any) => {
             if (item.classList.contains("menu-link")) {
                 if (!item.classList.contains("active")) {
@@ -98,13 +145,14 @@ const TwoColumnLayout = (props: any) => {
         const ul = document.getElementById("two-column-menu") as HTMLElement;
         const iconItems: any = ul.getElementsByTagName("a");
         let itemsArray = [...iconItems];
-        let activeIconItems = itemsArray.filter((x) => x.classList.contains("active"));
+        let activeIconItems = itemsArray.filter((x) =>
+            x.classList.contains("active"),
+        );
         activeIconItems.forEach((item) => {
             item.classList.remove("active");
             var id = item.getAttribute("sub-items");
             var getId = document.getElementById(id) as HTMLElement;
-            if (getId)
-                getId.classList.remove("show");
+            if (getId) getId.classList.remove("show");
         });
     };
 
@@ -115,27 +163,26 @@ const TwoColumnLayout = (props: any) => {
         var windowSize = document.documentElement.clientWidth;
         if (windowSize < 767) {
             document.documentElement.setAttribute("data-layout", "vertical");
-            setIsMenu('vertical');
-        }
-        else {
+            setIsMenu("vertical");
+        } else {
             document.documentElement.setAttribute("data-layout", "twocolumn");
-            setIsMenu('twocolumn');
+            setIsMenu("twocolumn");
         }
     };
 
     useEffect(function setupListener() {
-        if (props.layoutType === 'twocolumn') {
-            window.addEventListener('resize', windowResizeHover);
+        if (props.layoutType === "twocolumn") {
+            window.addEventListener("resize", windowResizeHover);
 
             // remove classname when component will unmount
             return function cleanupListener() {
-                window.removeEventListener('resize', windowResizeHover);
+                window.removeEventListener("resize", windowResizeHover);
             };
         }
     });
     return (
         <React.Fragment>
-            {isMenu === "twocolumn" ?
+            {isMenu === "twocolumn" ? (
                 <div id="scrollbar">
                     <Container fluid>
                         <div id="two-column-menu">
@@ -143,36 +190,49 @@ const TwoColumnLayout = (props: any) => {
                                 {/* <Link href="#" className="logo">
                                     <img src={logoSm} alt="" height="22" />
                                 </Link> */}
-                                {(navData || []).map((item: any, key: number) => (
-                                    <React.Fragment key={key}>
-                                        {item.icon && (
-                                            item.subItems ? (
-                                                <li>
-                                                    <Link
-                                                        onClick={item.click}
-                                                        href="#"
-                                                        sub-items={item.id}
-                                                        className="nav-icon"
-                                                        data-bs-toggle="collapse">
-                                                        <i className={item.icon}></i>
-                                                    </Link>
-                                                </li>
-
-                                            ) : (
-                                                <>
-                                                    <Link
-                                                        href={item.link ? item.link : "/#"}
-                                                        sub-items={item.id}
-                                                        className="nav-icon"
-                                                        data-bs-toggle="collapse">
-                                                        <i className={item.icon}></i>
-                                                    </Link>
-                                                </>
-                                            )
-                                        )}
-                                    </React.Fragment>
-                                ))}
-
+                                {(navData || []).map(
+                                    (item: any, key: number) => (
+                                        <React.Fragment key={key}>
+                                            {item.icon &&
+                                                (item.subItems ? (
+                                                    <li>
+                                                        <Link
+                                                            onClick={item.click}
+                                                            href="#"
+                                                            sub-items={item.id}
+                                                            className="nav-icon"
+                                                            data-bs-toggle="collapse"
+                                                        >
+                                                            <i
+                                                                className={
+                                                                    item.icon
+                                                                }
+                                                            ></i>
+                                                        </Link>
+                                                    </li>
+                                                ) : (
+                                                    <>
+                                                        <Link
+                                                            href={
+                                                                item.link
+                                                                    ? item.link
+                                                                    : "/#"
+                                                            }
+                                                            sub-items={item.id}
+                                                            className="nav-icon"
+                                                            data-bs-toggle="collapse"
+                                                        >
+                                                            <i
+                                                                className={
+                                                                    item.icon
+                                                                }
+                                                            ></i>
+                                                        </Link>
+                                                    </>
+                                                ))}
+                                        </React.Fragment>
+                                    ),
+                                )}
                             </SimpleBar>
                         </div>
                         <SimpleBar id="navbar-nav" className="navbar-nav">
@@ -185,90 +245,194 @@ const TwoColumnLayout = (props: any) => {
                                                 in={item.stateVariables}
                                             >
                                                 <div>
-                                                    <ul className="nav nav-sm flex-column test" id={item.id}>
+                                                    <ul
+                                                        className="nav nav-sm flex-column test"
+                                                        id={item.id}
+                                                    >
                                                         {/* subItms  */}
-                                                        {item.subItems && ((item.subItems || []).map((subItem: any, key: number) => (
-                                                            <React.Fragment key={key}>
-                                                                {!subItem.isChildItem ? (
-                                                                    <li className="nav-item">
-                                                                        <Link
-                                                                            href={subItem.link ? subItem.link : "/#"}
-                                                                            className="nav-link"
-                                                                        >
-                                                                            {props.t(subItem.label)}
-                                                                            {subItem.badgeName ?
-                                                                                <span className={"badge badge-pill bg-" + subItem.badgeColor} data-key="t-new">{subItem.badgeName}</span>
-                                                                                : null}
-                                                                        </Link>
-                                                                    </li>
-                                                                ) : (
-                                                                    <li className="nav-item">
-                                                                        <Link
-                                                                            onClick={subItem.click}
-                                                                            className="nav-link"
-                                                                            href="/#"
-                                                                            data-bs-toggle="collapse"
-                                                                        > {props.t(subItem.label)}
-                                                                            {subItem.badgeName ?
-                                                                                <span className={"badge badge-pill bg-" + subItem.badgeColor} data-key="t-new">{subItem.badgeName}</span>
-                                                                                : null}
-                                                                        </Link>
-                                                                        <Collapse className="menu-dropdown" in={subItem.stateVariables} >
-                                                                            <div>
-                                                                                <ul className="nav nav-sm flex-column" id={item.id}>
-                                                                                    {/* child subItms  */}
-                                                                                    {subItem.childItems && (
-                                                                                        (subItem.childItems || []).map((childItem: any, key: number) => (
-                                                                                            <li className="nav-item" key={key}>
-                                                                                                <Link
-                                                                                                    href={childItem.link ? childItem.link : "/#"}
-                                                                                                    onClick={childItem.click}
-                                                                                                    className="nav-link" >
-                                                                                                    {props.t(childItem.label)}
-
-                                                                                                </Link>
-                                                                                                <Collapse className="menu-dropdown" in={childItem.stateVariables} >
-                                                                                                    <div>
-                                                                                                        <ul className="nav nav-sm flex-column" id={item.id}>
-                                                                                                            {/* child subChildItems  */}
-                                                                                                            {childItem.isChildItem && (
-                                                                                                                (childItem.childItems || []).map((childItem: any, key: number) => (
-                                                                                                                    <li className="nav-item" key={key} >
-                                                                                                                        <Link
-                                                                                                                            href={childItem.link ? childItem.link : "/#"}
-                                                                                                                            className="nav-link">
-                                                                                                                            {props.t(childItem.label)}
-                                                                                                                        </Link>
-                                                                                                                    </li>
-                                                                                                                ))
-                                                                                                            )}
-                                                                                                        </ul>
-                                                                                                    </div>
-                                                                                                </Collapse>
-                                                                                            </li>
-                                                                                        ))
+                                                        {item.subItems &&
+                                                            (
+                                                                item.subItems ||
+                                                                []
+                                                            ).map(
+                                                                (
+                                                                    subItem: any,
+                                                                    key: number,
+                                                                ) => (
+                                                                    <React.Fragment
+                                                                        key={
+                                                                            key
+                                                                        }
+                                                                    >
+                                                                        {!subItem.isChildItem ? (
+                                                                            <li className="nav-item">
+                                                                                <Link
+                                                                                    href={
+                                                                                        subItem.link
+                                                                                            ? subItem.link
+                                                                                            : "/#"
+                                                                                    }
+                                                                                    className="nav-link"
+                                                                                >
+                                                                                    {props.t(
+                                                                                        subItem.label,
                                                                                     )}
-                                                                                </ul>
-                                                                            </div>
-                                                                        </Collapse>
-                                                                    </li>
-                                                                )}
-                                                            </React.Fragment>
-                                                        ))
-                                                        )}
+                                                                                    {subItem.badgeName ? (
+                                                                                        <span
+                                                                                            className={
+                                                                                                "badge badge-pill bg-" +
+                                                                                                subItem.badgeColor
+                                                                                            }
+                                                                                            data-key="t-new"
+                                                                                        >
+                                                                                            {
+                                                                                                subItem.badgeName
+                                                                                            }
+                                                                                        </span>
+                                                                                    ) : null}
+                                                                                </Link>
+                                                                            </li>
+                                                                        ) : (
+                                                                            <li className="nav-item">
+                                                                                <Link
+                                                                                    onClick={
+                                                                                        subItem.click
+                                                                                    }
+                                                                                    className="nav-link"
+                                                                                    href="/#"
+                                                                                    data-bs-toggle="collapse"
+                                                                                >
+                                                                                    {" "}
+                                                                                    {props.t(
+                                                                                        subItem.label,
+                                                                                    )}
+                                                                                    {subItem.badgeName ? (
+                                                                                        <span
+                                                                                            className={
+                                                                                                "badge badge-pill bg-" +
+                                                                                                subItem.badgeColor
+                                                                                            }
+                                                                                            data-key="t-new"
+                                                                                        >
+                                                                                            {
+                                                                                                subItem.badgeName
+                                                                                            }
+                                                                                        </span>
+                                                                                    ) : null}
+                                                                                </Link>
+                                                                                <Collapse
+                                                                                    className="menu-dropdown"
+                                                                                    in={
+                                                                                        subItem.stateVariables
+                                                                                    }
+                                                                                >
+                                                                                    <div>
+                                                                                        <ul
+                                                                                            className="nav nav-sm flex-column"
+                                                                                            id={
+                                                                                                item.id
+                                                                                            }
+                                                                                        >
+                                                                                            {/* child subItms  */}
+                                                                                            {subItem.childItems &&
+                                                                                                (
+                                                                                                    subItem.childItems ||
+                                                                                                    []
+                                                                                                ).map(
+                                                                                                    (
+                                                                                                        childItem: any,
+                                                                                                        key: number,
+                                                                                                    ) => (
+                                                                                                        <li
+                                                                                                            className="nav-item"
+                                                                                                            key={
+                                                                                                                key
+                                                                                                            }
+                                                                                                        >
+                                                                                                            <Link
+                                                                                                                href={
+                                                                                                                    childItem.link
+                                                                                                                        ? childItem.link
+                                                                                                                        : "/#"
+                                                                                                                }
+                                                                                                                onClick={
+                                                                                                                    childItem.click
+                                                                                                                }
+                                                                                                                className="nav-link"
+                                                                                                            >
+                                                                                                                {props.t(
+                                                                                                                    childItem.label,
+                                                                                                                )}
+                                                                                                            </Link>
+                                                                                                            <Collapse
+                                                                                                                className="menu-dropdown"
+                                                                                                                in={
+                                                                                                                    childItem.stateVariables
+                                                                                                                }
+                                                                                                            >
+                                                                                                                <div>
+                                                                                                                    <ul
+                                                                                                                        className="nav nav-sm flex-column"
+                                                                                                                        id={
+                                                                                                                            item.id
+                                                                                                                        }
+                                                                                                                    >
+                                                                                                                        {/* child subChildItems  */}
+                                                                                                                        {childItem.isChildItem &&
+                                                                                                                            (
+                                                                                                                                childItem.childItems ||
+                                                                                                                                []
+                                                                                                                            ).map(
+                                                                                                                                (
+                                                                                                                                    childItem: any,
+                                                                                                                                    key: number,
+                                                                                                                                ) => (
+                                                                                                                                    <li
+                                                                                                                                        className="nav-item"
+                                                                                                                                        key={
+                                                                                                                                            key
+                                                                                                                                        }
+                                                                                                                                    >
+                                                                                                                                        <Link
+                                                                                                                                            href={
+                                                                                                                                                childItem.link
+                                                                                                                                                    ? childItem.link
+                                                                                                                                                    : "/#"
+                                                                                                                                            }
+                                                                                                                                            className="nav-link"
+                                                                                                                                        >
+                                                                                                                                            {props.t(
+                                                                                                                                                childItem.label,
+                                                                                                                                            )}
+                                                                                                                                        </Link>
+                                                                                                                                    </li>
+                                                                                                                                ),
+                                                                                                                            )}
+                                                                                                                    </ul>
+                                                                                                                </div>
+                                                                                                            </Collapse>
+                                                                                                        </li>
+                                                                                                    ),
+                                                                                                )}
+                                                                                        </ul>
+                                                                                    </div>
+                                                                                </Collapse>
+                                                                            </li>
+                                                                        )}
+                                                                    </React.Fragment>
+                                                                ),
+                                                            )}
                                                     </ul>
                                                 </div>
-
                                             </Collapse>
                                         </li>
-                                    ) : null
-                                    }
+                                    ) : null}
                                 </React.Fragment>
                             ))}
                         </SimpleBar>
                     </Container>
                 </div>
-                :
+            ) : (
                 <SimpleBar id="scrollbar" className="h-100">
                     <Container fluid>
                         <div id="two-column-menu"></div>
@@ -277,8 +441,8 @@ const TwoColumnLayout = (props: any) => {
                         </ul>
                     </Container>
                 </SimpleBar>
-            }
-        </React.Fragment >
+            )}
+        </React.Fragment>
     );
 };
 

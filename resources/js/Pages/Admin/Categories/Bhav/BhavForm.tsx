@@ -1,131 +1,151 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo } from "react";
+
 import { Card, Col, Container, Form, Row } from "react-bootstrap";
+
 import BreadCrumb from "../../../../Components/Common/BreadCrumb";
+
 import { Head, Link, useForm, usePage } from "@inertiajs/react";
+
 import Layout from "../../../../Layouts";
-import { toast } from "react-toastify";
 
-const BhavForm = ({ bhav = null }) => {
-    const page = usePage().props;
+// import { toast } from "react-toastify";
 
-    const locale = page.locale === "gu" ? "gu" : "en";
-    const isGu = locale === "gu";
-    const { auth } = usePage().props as any;
+const BhavForm = ({ bhav = null }: any) => {
+    const page = usePage().props as any;
+
+    const { auth, translations = {}, languages = [], locale } = page;
+
+    const currentLocale = locale || languages?.[0]?.code || "en";
+
+    const tr = (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ) => {
+        let text = translations?.[key] ?? key;
+
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(`:${name}`, String(value));
+        });
+
+        return text;
+    };
+
+    const translateError = (error?: string) => {
+        if (!error) return "";
+        return tr(error);
+    };
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
+
     const isEdit = !!bhav?.id;
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Create multilingual value object dynamically
+    //
+    // If languages table contains:
+    // en, gu, hi
+    //
+    // this automatically creates:
+    // {
+    //     en: "...",
+    //     gu: "...",
+    //     hi: "..."
+    // }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const initialValue = useMemo(() => {
+        return languages.reduce(
+            (values: Record<string, string>, language: any) => {
+                values[language.code] = bhav?.value?.[language.code] ?? "";
+
+                return values;
+            },
+            {},
+        );
+    }, [languages, bhav]);
+
     const { data, setData, post, put, processing, errors } = useForm({
-        value: {
-            en: bhav?.value?.en ?? "",
-            gu: bhav?.value?.gu ?? "",
-        },
-        locale,
+        value: initialValue,
+        locale: currentLocale,
     });
 
-    // Keep form locale in sync with header toggle
+    // ─────────────────────────────────────────────────────────────────────────
+    // Keep form locale synchronized with header locale
+    // ─────────────────────────────────────────────────────────────────────────
     useEffect(() => {
-        setData("locale", locale);
-    }, [locale]);
+        setData("locale", currentLocale);
+    }, [currentLocale]);
 
-    const setValue = (text) => {
+    // ─────────────────────────────────────────────────────────────────────────
+    // Set current language value
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const setValue = (text: string) => {
         setData("value", {
             ...data.value,
-            [locale]: text,
+            [currentLocale]: text,
         });
     };
 
-    const handleSubmit = (e) => {
+    // ─────────────────────────────────────────────────────────────────────────
+    // Submit
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
         if (isEdit) {
             put(
                 route("role.category.bhavupdate", {
-                    rolePrefix: rolePrefix,
+                    rolePrefix,
                     bhav: bhav.id,
                 }),
                 {
-                    onSuccess: () =>
-                        toast.success(
-                            isGu
-                                ? "ભાવ સફળતાપૂર્વક અપડેટ થઈ!"
-                                : "Bhav updated successfully!",
-                        ),
-                    onError: () =>
-                        toast.error(
-                            isGu
-                                ? "કૃપા કરીને ભૂલો સુધારો."
-                                : "Please fix the errors.",
-                        ),
+                    onSuccess: () => {
+                        // toast.success(translations.bhav_updated_success ?? "");
+                    },
+
+                    onError: () => {
+                        // toast.error(translations.please_fix_errors ?? "");
+                    },
                 },
             );
         } else {
             post(
                 route("role.category.bhavstore", {
-                    rolePrefix: rolePrefix,
+                    rolePrefix,
                 }),
                 {
-                    onSuccess: () =>
-                        toast.success(
-                            isGu
-                                ? "ભાવ સફળતાપૂર્વક ઉમેરવામાં આવી!"
-                                : "Bhav added successfully!",
-                        ),
-                    onError: () =>
-                        toast.error(
-                            isGu
-                                ? "કૃપા કરીને ભૂલો સુધારો."
-                                : "Please fix the errors.",
-                        ),
+                    onSuccess: () => {
+                        // toast.success(translations.bhav_added_success ?? "");
+                    },
+
+                    onError: () => {
+                        // toast.error(translations.please_fix_errors ?? "");
+                    },
                 },
             );
         }
     };
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Page title
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const pageHeading = isEdit ? tr("edit_bhav") : tr("add_bhav");
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Render
+    // ─────────────────────────────────────────────────────────────────────────
+
     return (
         <React.Fragment>
-            <Head
-                title={
-                    isEdit
-                        ? isGu
-                            ? "ભાવ  સંપાદિત કરો"
-                            : "Edit Bhav"
-                        : isGu
-                          ? "ભાવ  ઉમેરો"
-                          : "Add Bhav"
-                }
-            />
+            <Head title={pageHeading} />
 
             <div className="page-content">
                 <Container fluid>
-                    <BreadCrumb
-                        title={
-                            isEdit
-                                ? isGu
-                                    ? "ભાવ  સંપાદિત કરો"
-                                    : "Edit Bhav"
-                                : isGu
-                                  ? "ભાવ  ઉમેરો"
-                                  : "Add Bhav"
-                        }
-                        pageTitle={isGu ? "ભાવ " : "Bhavs"}
-                    />
-
-                    {/* Locale indicator */}
-                    {/* <div className="mb-3">
-                        <span className="badge bg-primary">
-                            {isGu
-                                ? "ફોર્મ: ગુજરાતી (GU)"
-                                : "Form: English (EN)"}
-                        </span>
-
-                        <small className="text-muted ms-2">
-                            {isGu
-                                ? "બીજી ભાષામાં ફેરફાર કરવા માટે હેડર ટૉગલ બદલો."
-                                : "Switch language from the header toggle to edit the other translation."}
-                        </small>
-                    </div> */}
+                    <BreadCrumb title={pageHeading} pageTitle={tr("bhavs")} />
 
                     <Row>
                         <Col lg={12}>
@@ -133,54 +153,41 @@ const BhavForm = ({ bhav = null }) => {
                                 <Card.Header>
                                     <h5 className="card-title mb-0">
                                         {isEdit
-                                            ? isGu
-                                                ? "ભાવ  વિગતો"
-                                                : "Bhav Details"
-                                            : isGu
-                                              ? "નવો ભાવ"
-                                              : "New Bhav"}
-
-                                        {/* {isEdit && (
-                                            <span
-                                                className="badge bg-secondary ms-2"
-                                                style={{
-                                                    fontSize: "10px",
-                                                }}
-                                            >
-                                                ID #{bhav.id}
-                                            </span>
-                                        )} */}
+                                            ? (tr("bhav_details") ?? "")
+                                            : (tr("new_bhav") ?? "")}
                                     </h5>
                                 </Card.Header>
 
                                 <Card.Body>
                                     <Form onSubmit={handleSubmit}>
-                                        {/* Type is fixed */}
+                                        {/* ─────────────────────────────
+                                            Type
+                                        ───────────────────────────── */}
+
                                         <Form.Group className="mb-3">
                                             <Form.Label>
-                                                {isGu ? "પ્રકાર" : "Type"}
+                                                {tr("type")}
                                             </Form.Label>
 
                                             <Form.Control
                                                 type="text"
-                                                value={isGu ? "ભાવ " : "Bhav"}
+                                                value={tr("bhav") ?? ""}
                                                 disabled
                                                 readOnly
                                             />
 
                                             <Form.Text className="text-muted">
-                                                {isGu
-                                                    ? "પ્રકાર હંમેશા ભાવ  રહેશે."
-                                                    : "Type is always set to Bhav."}
+                                                {tr("bhav_type_help")}
                                             </Form.Text>
                                         </Form.Group>
 
-                                        {/* Bhav value - current locale */}
+                                        {/* ─────────────────────────────
+                                            Current language value
+                                        ───────────────────────────── */}
+
                                         <Form.Group className="mb-3">
                                             <Form.Label htmlFor="bhav-value">
-                                                {isGu
-                                                    ? "ભાવનું નામ"
-                                                    : "Bhav Name"}{" "}
+                                                {tr("bhav_name")}{" "}
                                                 <span className="text-danger">
                                                     *
                                                 </span>
@@ -190,39 +197,39 @@ const BhavForm = ({ bhav = null }) => {
                                                 type="text"
                                                 id="bhav-value"
                                                 placeholder={
-                                                    isGu
-                                                        ? "ઉદા. મહિમા"
-                                                        : "e.g. Mahima"
+                                                    tr("bhav_placeholder") ?? ""
                                                 }
-                                                value={data.value[locale] ?? ""}
+                                                value={
+                                                    data.value?.[
+                                                        currentLocale
+                                                    ] ?? ""
+                                                }
                                                 onChange={(e) =>
                                                     setValue(e.target.value)
                                                 }
                                                 isInvalid={
-                                                    !!errors[
-                                                        `value.${locale}`
-                                                    ] || !!errors.value
+                                                    !!errors?.[
+                                                        `value.${currentLocale}`
+                                                    ] || !!errors?.value
                                                 }
                                             />
 
                                             <Form.Control.Feedback type="invalid">
-                                                {errors[`value.${locale}`] ||
-                                                    errors.value}
+                                                {translateError(
+                                                    errors?.[
+                                                        `value.${currentLocale}`
+                                                    ] || errors?.value,
+                                                )}
                                             </Form.Control.Feedback>
-
-                                            {/* <Form.Text className="text-muted">
-                                                {isGu
-                                                    ? "બીજી ભાષા માટે હેડર ટૉગલ બદલો."
-                                                    : "Switch the header toggle to fill the other language."}
-                                            </Form.Text> */}
                                         </Form.Group>
 
-                                        {/* Both languages reference */}
+                                        {/* ─────────────────────────────
+                                            All languages reference
+                                        ───────────────────────────── */}
+
                                         <div className="mb-3 p-2 rounded border bg-light">
                                             <small className="text-muted d-block mb-1">
-                                                {isGu
-                                                    ? "બંને ભાષાઓ (સંદર્ભ)"
-                                                    : "Both languages (reference)"}
+                                                {tr("both_languages_reference")}
                                             </small>
 
                                             <div
@@ -231,30 +238,39 @@ const BhavForm = ({ bhav = null }) => {
                                                     fontSize: "13px",
                                                 }}
                                             >
-                                                <span>
-                                                    <strong>EN:</strong>{" "}
-                                                    {data.value.en || "—"}
-                                                </span>
-
-                                                <span>
-                                                    <strong>GU:</strong>{" "}
-                                                    {data.value.gu || "—"}
-                                                </span>
+                                                {languages.map(
+                                                    (language: any) => (
+                                                        <span
+                                                            key={language.code}
+                                                        >
+                                                            <strong>
+                                                                {language.code.toUpperCase()}
+                                                                :
+                                                            </strong>{" "}
+                                                            {data.value?.[
+                                                                language.code
+                                                            ] || "—"}
+                                                        </span>
+                                                    ),
+                                                )}
                                             </div>
                                         </div>
 
-                                        {/* Buttons */}
+                                        {/* ─────────────────────────────
+                                            Buttons
+                                        ───────────────────────────── */}
+
                                         <div className="text-end">
                                             <Link
                                                 href={route(
                                                     "role.category.bhavlist",
                                                     {
-                                                        rolePrefix: rolePrefix,
+                                                        rolePrefix,
                                                     },
                                                 )}
                                                 className="btn btn-secondary me-2"
                                             >
-                                                {isGu ? "રદ કરો" : "Cancel"}
+                                                {tr("cancel")}
                                             </Link>
 
                                             <button
@@ -263,16 +279,10 @@ const BhavForm = ({ bhav = null }) => {
                                                 disabled={processing}
                                             >
                                                 {processing
-                                                    ? isGu
-                                                        ? "સાચવી રહ્યા છીએ..."
-                                                        : "Saving..."
+                                                    ? tr("saving")
                                                     : isEdit
-                                                      ? isGu
-                                                          ? "અપડેટ કરો"
-                                                          : "Update"
-                                                      : isGu
-                                                        ? "સાચવો"
-                                                        : "Save"}
+                                                      ? tr("update")
+                                                      : tr("save")}
                                             </button>
                                         </div>
                                     </Form>
@@ -286,6 +296,6 @@ const BhavForm = ({ bhav = null }) => {
     );
 };
 
-BhavForm.layout = (page) => <Layout children={page} />;
+BhavForm.layout = (page: any) => <Layout children={page} />;
 
 export default BhavForm;

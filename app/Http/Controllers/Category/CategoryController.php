@@ -14,7 +14,7 @@ class CategoryController extends Controller
 
   public function CreateCategory()
   {
-    return Inertia::render('Admin/Categories/CreateCategory');
+    return Inertia::render('Admin/Categories/DynamicCategory/CreateCategory');
   }
 
   public function store(Request $request)

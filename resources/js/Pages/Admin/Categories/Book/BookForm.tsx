@@ -1,122 +1,101 @@
-import React, { useEffect } from "react";
-import { Card, Col, Container, Form, Row } from "react-bootstrap";
-import BreadCrumb from "../../../../Components/Common/BreadCrumb";
-import { Head, Link, useForm, usePage } from "@inertiajs/react";
-import Layout from "../../../../Layouts";
-import { toast } from "react-toastify";
+import React, { useEffect, useMemo } from "react";
 
-const BookForm = ({ book = null }) => {
-    const { auth } = usePage().props as any;
+import { Card, Col, Container, Form, Row } from "react-bootstrap";
+
+import BreadCrumb from "../../../../Components/Common/BreadCrumb";
+
+import { Head, Link, useForm, usePage } from "@inertiajs/react";
+
+import Layout from "../../../../Layouts";
+
+// import { toast } from "react-toastify";
+
+const BookForm = ({ book = null }: any) => {
+    const page = usePage().props as any;
+
+    const { auth, translations = {}, languages = [], locale } = page;
+
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
-    const page = usePage().props;
 
-    const locale = page.locale === "gu" ? "gu" : "en";
-    const isGu = locale === "gu";
     const isEdit = !!book?.id;
 
+    // ─────────────────────────────────────────────
+    // Create multilingual initial value dynamically
+    // from languages table
+    // ─────────────────────────────────────────────
+    const initialValue = useMemo(() => {
+        return languages.reduce(
+            (values: Record<string, string>, language: any) => {
+                values[language.code] = book?.value?.[language.code] ?? "";
+
+                return values;
+            },
+            {},
+        );
+    }, [languages, book]);
+
     const { data, setData, post, put, processing, errors } = useForm({
-        value: {
-            en: book?.value?.en ?? "",
-            gu: book?.value?.gu ?? "",
-        },
+        value: initialValue,
         locale,
     });
 
-    // Keep form locale in sync with header toggle
+    // ─────────────────────────────────────────────
+    // Keep form locale synced with header locale
+    // ─────────────────────────────────────────────
     useEffect(() => {
         setData("locale", locale);
     }, [locale]);
 
-    const setValue = (text) => {
+    // ─────────────────────────────────────────────
+    // Update current language value
+    // ─────────────────────────────────────────────
+    const setValue = (text: string) => {
         setData("value", {
             ...data.value,
             [locale]: text,
         });
     };
 
-    const handleSubmit = (e) => {
+    // ─────────────────────────────────────────────
+    // Submit
+    // ─────────────────────────────────────────────
+    const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
         if (isEdit) {
-            put(route("admin.category.bookupdate", book.id), {
-                onSuccess: () =>
-                    toast.success(
-                        isGu
-                            ? "પુસ્તક સફળતાપૂર્વક અપડેટ થઈ!"
-                            : "Book updated successfully!",
-                    ),
-
-                onError: () =>
-                    toast.error(
-                        isGu
-                            ? "કૃપા કરીને ભૂલો સુધારો."
-                            : "Please fix the errors.",
-                    ),
-            });
+            put(
+                route("role.category.bookupdate", {
+                    rolePrefix: rolePrefix,
+                    book: book.id,
+                }),
+            );
         } else {
-            post(route("admin.category.bookstore"), {
-                onSuccess: () =>
-                    toast.success(
-                        isGu
-                            ? "પુસ્તક સફળતાપૂર્વક ઉમેરવામાં આવી!"
-                            : "Book added successfully!",
-                    ),
-
-                onError: () =>
-                    toast.error(
-                        isGu
-                            ? "કૃપા કરીને ભૂલો સુધારો."
-                            : "Please fix the errors.",
-                    ),
-            });
+            post(
+                route("role.category.bookstore", {
+                    rolePrefix: rolePrefix,
+                }),
+            );
         }
     };
+    // ─────────────────────────────────────────────
+    // Dynamic page heading
+    // ─────────────────────────────────────────────
+    const pageHeading = isEdit
+        ? (translations.edit_book ?? "")
+        : (translations.add_book ?? "");
 
     return (
         <React.Fragment>
-            <Head
-                title={
-                    isEdit
-                        ? isGu
-                            ? "પુસ્તક સંપાદિત કરો"
-                            : "Edit Book"
-                        : isGu
-                          ? "પુસ્તક ઉમેરો"
-                          : "Add Book"
-                }
-            />
+            <Head title={pageHeading} />
 
             <div className="page-content">
                 <Container fluid>
                     <BreadCrumb
-                        title={
-                            isEdit
-                                ? isGu
-                                    ? "પુસ્તક સંપાદિત કરો"
-                                    : "Edit Book"
-                                : isGu
-                                  ? "પુસ્તક ઉમેરો"
-                                  : "Add Book"
-                        }
-                        pageTitle={isGu ? "પુસ્તક" : "Books"}
+                        title={pageHeading}
+                        pageTitle={translations.books ?? ""}
                     />
-
-                    {/* Locale indicator */}
-                    {/* <div className="mb-3">
-                        <span className="badge bg-primary">
-                            {isGu
-                                ? "ફોર્મ: ગુજરાતી (GU)"
-                                : "Form: English (EN)"}
-                        </span>
-
-                        <small className="text-muted ms-2">
-                            {isGu
-                                ? "બીજી ભાષામાં ફેરફાર કરવા માટે હેડર ટૉગલ બદલો."
-                                : "Switch language from the header toggle to edit the other translation."}
-                        </small>
-                    </div> */}
 
                     <Row>
                         <Col lg={12}>
@@ -124,54 +103,35 @@ const BookForm = ({ book = null }) => {
                                 <Card.Header>
                                     <h5 className="card-title mb-0">
                                         {isEdit
-                                            ? isGu
-                                                ? "પુસ્તક વિગતો"
-                                                : "Book Details"
-                                            : isGu
-                                              ? "નવું પુસ્તક"
-                                              : "New Book"}
-
-                                        {/* {isEdit && (
-                                            <span
-                                                className="badge bg-secondary ms-2"
-                                                style={{
-                                                    fontSize: "10px",
-                                                }}
-                                            >
-                                                ID #{book.id}
-                                            </span>
-                                        )} */}
+                                            ? (translations.book_details ?? "")
+                                            : (translations.new_book ?? "")}
                                     </h5>
                                 </Card.Header>
 
                                 <Card.Body>
                                     <Form onSubmit={handleSubmit}>
-                                        {/* Type is fixed */}
+                                        {/* Type */}
                                         <Form.Group className="mb-3">
                                             <Form.Label>
-                                                {isGu ? "પ્રકાર" : "Type"}
+                                                {translations.type}
                                             </Form.Label>
 
                                             <Form.Control
                                                 type="text"
-                                                value={isGu ? "પુસ્તક" : "Book"}
+                                                value={translations.book ?? ""}
                                                 disabled
                                                 readOnly
                                             />
 
                                             <Form.Text className="text-muted">
-                                                {isGu
-                                                    ? "પ્રકાર હંમેશા પુસ્તક રહેશે."
-                                                    : "Type is always set to Book."}
+                                                {translations.book_type_help}
                                             </Form.Text>
                                         </Form.Group>
 
-                                        {/* Book value - current locale */}
+                                        {/* Book name */}
                                         <Form.Group className="mb-3">
                                             <Form.Label htmlFor="book-value">
-                                                {isGu
-                                                    ? "પુસ્તકનું નામ"
-                                                    : "Book Name"}{" "}
+                                                {translations.book_name}{" "}
                                                 <span className="text-danger">
                                                     *
                                                 </span>
@@ -181,11 +141,12 @@ const BookForm = ({ book = null }) => {
                                                 type="text"
                                                 id="book-value"
                                                 placeholder={
-                                                    isGu
-                                                        ? "ઉદા. હરિકીર્તન"
-                                                        : "e.g. Harikirtan"
+                                                    translations.book_placeholder ??
+                                                    ""
                                                 }
-                                                value={data.value[locale] ?? ""}
+                                                value={
+                                                    data.value?.[locale] ?? ""
+                                                }
                                                 onChange={(e) =>
                                                     setValue(e.target.value)
                                                 }
@@ -200,20 +161,14 @@ const BookForm = ({ book = null }) => {
                                                 {errors[`value.${locale}`] ||
                                                     errors.value}
                                             </Form.Control.Feedback>
-
-                                            {/* <Form.Text className="text-muted">
-                                                {isGu
-                                                    ? "બીજી ભાષા માટે હેડર ટૉગલ બદલો."
-                                                    : "Switch the header toggle to fill the other language."}
-                                            </Form.Text> */}
                                         </Form.Group>
 
-                                        {/* Both languages reference */}
+                                        {/* All languages reference */}
                                         <div className="mb-3 p-2 rounded border bg-light">
                                             <small className="text-muted d-block mb-1">
-                                                {isGu
-                                                    ? "બંને ભાષાઓ (સંદર્ભ)"
-                                                    : "Both languages (reference)"}
+                                                {
+                                                    translations.both_languages_reference
+                                                }
                                             </small>
 
                                             <div
@@ -222,27 +177,36 @@ const BookForm = ({ book = null }) => {
                                                     fontSize: "13px",
                                                 }}
                                             >
-                                                <span>
-                                                    <strong>EN:</strong>{" "}
-                                                    {data.value.en || "—"}
-                                                </span>
-
-                                                <span>
-                                                    <strong>GU:</strong>{" "}
-                                                    {data.value.gu || "—"}
-                                                </span>
+                                                {languages.map(
+                                                    (language: any) => (
+                                                        <span
+                                                            key={language.code}
+                                                        >
+                                                            <strong>
+                                                                {language.code.toUpperCase()}
+                                                                :
+                                                            </strong>{" "}
+                                                            {data.value?.[
+                                                                language.code
+                                                            ] || "—"}
+                                                        </span>
+                                                    ),
+                                                )}
                                             </div>
                                         </div>
 
                                         {/* Buttons */}
                                         <div className="text-end">
                                             <Link
-                                                href={route("role.pads.list", {
-                                                    rolePrefix: rolePrefix,
-                                                })}
+                                                href={route(
+                                                    "role.category.booklist",
+                                                    {
+                                                        rolePrefix: rolePrefix,
+                                                    },
+                                                )}
                                                 className="btn btn-secondary me-2"
                                             >
-                                                {isGu ? "રદ કરો" : "Cancel"}
+                                                {translations.cancel}
                                             </Link>
 
                                             <button
@@ -251,16 +215,10 @@ const BookForm = ({ book = null }) => {
                                                 disabled={processing}
                                             >
                                                 {processing
-                                                    ? isGu
-                                                        ? "સાચવી રહ્યા છીએ..."
-                                                        : "Saving..."
+                                                    ? translations.saving
                                                     : isEdit
-                                                      ? isGu
-                                                          ? "અપડેટ કરો"
-                                                          : "Update"
-                                                      : isGu
-                                                        ? "સાચવો"
-                                                        : "Save"}
+                                                      ? translations.update
+                                                      : translations.save}
                                             </button>
                                         </div>
                                     </Form>
@@ -274,6 +232,6 @@ const BookForm = ({ book = null }) => {
     );
 };
 
-BookForm.layout = (page) => <Layout children={page} />;
+BookForm.layout = (page: any) => <Layout children={page} />;
 
 export default BookForm;

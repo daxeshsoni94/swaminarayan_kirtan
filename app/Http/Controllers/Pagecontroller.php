@@ -45,10 +45,12 @@ class Pagecontroller extends Controller
             $query->where('page_group', $group);
         }
 
-        $pages = $query->paginate(10)->withQueryString();
+        $pages = $query
+            ->paginate(10)
+            ->withQueryString();
 
         return Inertia::render('Admin/Pages/List', [
-            'pages'   => $pages,
+            'pages' => $pages,
             'filters' => $request->only(['search', 'page_group']) + [
                 'status' => $status,
             ],
@@ -61,10 +63,11 @@ class Pagecontroller extends Controller
             ->where('status', 'published')
             ->firstOrFail();
 
-        return Inertia::render('Pages/Show', [ // create this page or use a simple view
+        return Inertia::render('Pages/Show', [
             'page' => $page,
         ]);
     }
+
     public function create()
     {
         return Inertia::render('Admin/Pages/Form', [
@@ -83,25 +86,20 @@ class Pagecontroller extends Controller
 
     public function store($rolePrefix, Request $request)
     {
-        $locale = app()->getLocale();
-
-        if (!in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
-        }
         $request->validate([
             'page_group' => 'required|string|max:255',
-            'title'      => 'required|string|max:255',
-            'slug'       => 'required|string|max:255|unique:pages,slug',
-            'content'    => 'required|string',
-            'status'     => 'required|in:published,draft',
+            'title' => 'required|string|max:255',
+            'slug' => 'required|string|max:255|unique:pages,slug',
+            'content' => 'required|string',
+            'status' => 'required|in:published,draft',
         ]);
 
         Page::create([
             'page_group' => $request->page_group,
-            'title'      => $request->title,
-            'slug'       => Str::slug($request->slug),
-            'content'    => $request->content,
-            'status'     => $request->status,
+            'title' => $request->title,
+            'slug' => Str::slug($request->slug),
+            'content' => $request->content,
+            'status' => $request->status,
             'created_by' => Auth::id(),
         ]);
 
@@ -109,68 +107,50 @@ class Pagecontroller extends Controller
             ->route('role.pages.list', [
                 'rolePrefix' => $rolePrefix,
             ])
-            ->with('success', $locale === 'gu'
-                ? 'પેજ સફળતાપૂર્વક બનાવવામાં આવ્યું.'
-                : 'Page created successfully.');
+            ->with('success', 'page_created_success');
     }
 
-    public function update($rolePrefix, Request $request, Page $page)
-    {
-        $locale = app()->getLocale();
-
-        if (!in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
-        }
+    public function update(
+        $rolePrefix,
+        Request $request,
+        Page $page
+    ) {
         $request->validate([
             'page_group' => 'required|string|max:255',
-            'title'      => 'required|string|max:255',
-            'slug'       => 'required|string|max:255|unique:pages,slug,' . $page->id,
-            'content'    => 'required|string',
-            'status'     => 'required|in:published,draft',
+            'title' => 'required|string|max:255',
+            'slug' => 'required|string|max:255|unique:pages,slug,' . $page->id,
+            'content' => 'required|string',
+            'status' => 'required|in:published,draft',
         ]);
 
         $page->update([
             'page_group' => $request->page_group,
-            'title'      => $request->title,
-            'slug'       => Str::slug($request->slug),
-            'content'    => $request->content,
-            'status'     => $request->status,
+            'title' => $request->title,
+            'slug' => Str::slug($request->slug),
+            'content' => $request->content,
+            'status' => $request->status,
         ]);
 
         return redirect()
             ->route('role.pages.list', [
                 'rolePrefix' => $rolePrefix,
             ])
-            ->with('success', $locale === 'gu'
-                ? 'પેજ સફળતાપૂર્વક અપડેટ થયું.'
-                : 'Page updated successfully.');
+            ->with('success', 'page_updated_success');
     }
 
     public function destroy($rolePrefix, Page $page)
     {
-        $locale = app()->getLocale();
-
-        if (!in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
-        }
         $page->delete();
 
         return redirect()
             ->back()
-            ->with('success', $locale === 'gu'
-                ? 'પેજ સફળતાપૂર્વક કાઢી નાખવામાં આવ્યું.'
-                : 'Page deleted successfully.');
+            ->with('success', 'page_deleted_success');
     }
 
     public function bulkDestroy($rolePrefix, Request $request)
     {
-        $locale = app()->getLocale();
-
-        if (!in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
-        }
         $request->validate([
-            'ids'   => 'required|array',
+            'ids' => 'required|array',
             'ids.*' => 'integer|exists:pages,id',
         ]);
 
@@ -178,8 +158,6 @@ class Pagecontroller extends Controller
 
         return redirect()
             ->back()
-            ->with('success', $locale === 'gu'
-                ? 'પેજ સફળતાપૂર્વક કાઢી નાખવામાં આવ્યા.'
-                : 'Pages deleted successfully.');
+            ->with('success', 'pages_deleted_success');
     }
 }

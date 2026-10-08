@@ -12,6 +12,8 @@ import { Link, usePage } from "@inertiajs/react";
 import HorizontalLayout from "./HorizontalLayout";
 import TwoColumnLayout from "./TwoColumnLayout";
 
+import { useSelector } from "react-redux";
+
 const Sidebar = ({ layoutType }: any) => {
     useEffect(() => {
         var verticalOverlay =
@@ -23,10 +25,16 @@ const Sidebar = ({ layoutType }: any) => {
         }
     });
 
-    const { settings } = usePage().props as any;
+    const { settings, layoutSettings, rolePrefix } = usePage().props as any;
+    const { leftSidebarImageType } = useSelector((state: any) => state.Layout);
+
     const logo = settings?.app_logo
         ? `/storage/${settings.app_logo}`
         : logoLight;
+
+    const customBgStyle = leftSidebarImageType === 'custom' && layoutSettings?.sidebarCustomImage
+        ? { backgroundImage: `url(${layoutSettings.sidebarCustomImage})`, backgroundSize: 'cover' }
+        : {};
 
     const addEventListenerOnSmHoverMenu = () => {
         // add listener Sidebar Hover icon on change layout from setting
@@ -58,7 +66,7 @@ const Sidebar = ({ layoutType }: any) => {
         <React.Fragment>
             <div className="app-menu navbar-menu">
                 <div className="navbar-brand-box">
-                    <Link href="/" className="logo logo-dark">
+                    <Link href={route("role.pads.list", { rolePrefix: rolePrefix })} className="logo logo-dark">
                         {/* <span className="logo-sm">
               <img src={logoSm} alt="" height="40" />
             </span> */}
@@ -67,7 +75,7 @@ const Sidebar = ({ layoutType }: any) => {
                         </span>
                     </Link>
 
-                    <Link href="/" className="logo logo-light">
+                    <Link href={route("role.pads.list", { rolePrefix: rolePrefix })} className="logo logo-light">
                         <span className="logo-sm">
                             <img src={logoSm} alt="" height="40" />
                         </span>
@@ -96,7 +104,7 @@ const Sidebar = ({ layoutType }: any) => {
                 ) : layoutType === "twocolumn" ? (
                     <React.Fragment>
                         <TwoColumnLayout layoutType={layoutType} />
-                        <div className="sidebar-background"></div>
+                        <div className="sidebar-background" style={customBgStyle}></div>
                     </React.Fragment>
                 ) : (
                     <React.Fragment>
@@ -108,7 +116,7 @@ const Sidebar = ({ layoutType }: any) => {
                                 </ul>
                             </Container>
                         </SimpleBar>
-                        <div className="sidebar-background"></div>
+                        <div className="sidebar-background" style={customBgStyle}></div>
                     </React.Fragment>
                 )}
             </div>

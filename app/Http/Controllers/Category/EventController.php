@@ -4,507 +4,870 @@ namespace App\Http\Controllers\Category;
 
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Models\Language;
+use App\Models\Pad;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
 
 class EventController extends Controller
 {
-    // public function eventList(Request $request)
-    // {
-    //     $search = $request->input('search');
+    // ─────────────────────────────────────────────────────────────────────
+    // HELPERS
+    // ─────────────────────────────────────────────────────────────────────
 
-    //     $events = Category::query()
-    //         ->where('type->en', 'Event')
-    //         ->when($search, function ($query) use ($search) {
-    //             $query->where(function ($q) use ($search) {
-    //                 $q->where('value->en', 'like', "%{$search}%")
-    //                     ->orWhere('value->gu', 'like', "%{$search}%");
-    //             });
-    //         })
-    //         ->withCount('pads')
-    //         ->latest()
-    //         ->paginate(10)
-    //         ->withQueryString();
-
-    //     return Inertia::render('Admin/Categories/Event/EventList', [
-    //         'events' => $events,
-    //         'filters' => [
-    //             'search' => $search,
-    //         ],
-    //         'locale' => app()->getLocale(),
-    //     ]);
-    // }
-
-    public function eventList($rolePrefix, Request $request)
+    /**
+     * Get all supported language codes from languages table.
+     *
+     * Example:
+     * ['en', 'gu', 'hi']
+     */
+    private function supportedLocales(): array
     {
-        $locale = app()->getLocale();
+        $codes = Language::query()
+            ->pluck('code')
+            ->filter()
+            ->values()
+            ->all();
 
-        if (!in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
+        return !empty($codes) ? $codes : ['en', 'gu'];
+    }
+
+    /**
+     * Resolve current/requested locale safely.
+     */
+    private function resolveLocale(?string $locale = null): string
+    {
+        $locale = $locale ?: app()->getLocale();
+
+        $locales = $this->supportedLocales();
+
+        return in_array($locale, $locales, true)
+            ? $locale
+            : ($locales[0] ?? 'en');
+    }
+
+    /**
+     * Get translated value with fallback.
+     *
+     * Priority:
+     * 1. Requested locale
+     * 2. Other supported languages
+     */
+    private function t($model, string $field, string $locale): string
+    {
+        if (!$model) {
+            return '';
         }
-        $search = trim($request->input('search', ''));
-        $letter = trim($request->get('letter', ''));
+
+        $value = $model->getTranslation($field, $locale, false);
+
+        if (is_string($value) && $value !== '') {
+            return $value;
+        }
+
+        foreach ($this->supportedLocales() as $code) {
+            $fallback = $model->getTranslation($field, $code, false);
+
+            if (is_string($fallback) && $fallback !== '') {
+                return $fallback;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Canonical database type key.
+     *
+     * English is always stored as "Event".
+     */
+    private function eventTypeKey(): string
+    {
+        return 'Event';
+    }
+
+    /**
+     * Check whether category is an Event.
+     *
+     * We use English canonical type so this remains
+     * independent from the current UI language.
+     */
+    private function isEventType(Category $category): bool
+    {
+        $typeEn = strtolower(
+            trim($category->getTranslation('type', 'en', false) ?? '')
+        );
+
+        return $typeEn === strtolower($this->eventTypeKey());
+    }
+
+    /**
+     * Get translated type value for a language.
+     *
+     * Add more language-specific translations here later
+     * if required.
+     */
+    private function eventTypeTranslation(string $code): string
+    {
+        return match ($code) {
+            'en' => 'Event',
+            'gu' => 'પ્રસંગ',
+            default => 'Event',
+        };
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // LIST
+    // ─────────────────────────────────────────────────────────────────────
+
+    public function eventList(Request $request)
+    {
+        $locale = $this->resolveLocale();
+        $locales = $this->supportedLocales();
+
+        $search = trim((string) $request->get('search', ''));
+        $letter = trim((string) $request->get('letter', ''));
 
         $query = Category::query()
-            ->where(function ($q) {
-                // Only Event categories
-                $q->whereRaw(
-                    "LOWER(JSON_UNQUOTE(JSON_EXTRACT(type, '$.en'))) = ?",
-                    ['event']
-                )
-                    ->orWhereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(type, '$.gu')) LIKE ?",
-                        ['%પ્રસંગ%']
+            ->where(function ($q) use ($locales) {
+
+                /*
+                 * Match Event type in every supported language.
+                 *
+                 * English canonical value is always Event.
+                 */
+                foreach ($locales as $code) {
+                    $q->orWhere(
+                        "type->{$code}",
+                        $this->eventTypeKey()
                     );
+                }
+
+                /*
+                 * Existing Gujarati records.
+                 */
+                $q->orWhere(
+                    'type->gu',
+                    'પ્રસંગ'
+                );
             })
             ->withCount('pads');
 
+        // ───────────────────────────────────────────────────────────────
+        // LETTER FILTER
+        // ───────────────────────────────────────────────────────────────
 
         if ($letter !== '') {
-            $query->where(function ($q) use ($letter, $locale) {
+            $query->where(function ($q) use (
+                $letter,
+                $locale,
+                $locales
+            ) {
+                // Current language first
+                $q->orWhere(
+                    "value->{$locale}",
+                    'like',
+                    $letter . '%'
+                );
 
-                if ($locale === 'gu') {
-                    $q->whereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(value, '$.gu')) LIKE ?",
-                        [$letter . '%']
-                    );
-                } else {
-                    $q->whereRaw(
-                        "LOWER(JSON_UNQUOTE(JSON_EXTRACT(value, '$.en'))) LIKE ?",
-                        [strtolower($letter) . '%']
+                // Other supported languages
+                foreach ($locales as $code) {
+                    if ($code === $locale) {
+                        continue;
+                    }
+
+                    $q->orWhere(
+                        "value->{$code}",
+                        'like',
+                        $letter . '%'
                     );
                 }
             });
         }
+
+        // ───────────────────────────────────────────────────────────────
+        // SEARCH
+        // ───────────────────────────────────────────────────────────────
 
         if ($search !== '') {
             $searchLike = '%' . $search . '%';
 
-            $query->where(function ($q) use ($search, $searchLike) {
+            $query->where(function ($q) use (
+                $search,
+                $searchLike,
+                $locales
+            ) {
+
+                // Search by ID
                 if (is_numeric($search)) {
-                    $q->orWhere('id', $search);   // exact ID match
-                    $q->orWhere('id', 'like', $searchLike);
+                    $q->where('id', $search)
+                        ->orWhere('id', 'like', $searchLike);
                 }
-                /*
-             * Event value
-             */
-                $q->whereRaw(
-                    "JSON_UNQUOTE(JSON_EXTRACT(value, '$.en')) LIKE ?",
-                    [$searchLike]
-                )
-                    ->orWhereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(value, '$.gu')) LIKE ?",
-                        [$searchLike]
-                    )
 
-                    /*
-             * Event type
-             */
-                    ->orWhereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(type, '$.en')) LIKE ?",
-                        [$searchLike]
-                    )
-                    ->orWhereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(type, '$.gu')) LIKE ?",
-                        [$searchLike]
-                    )
-                    /*
-             * Related Pads
-             */
-                    ->orWhereHas('pads', function ($padQuery) use ($searchLike) {
+                // Event name + event type in every language
+                foreach ($locales as $code) {
+                    $q->orWhere(
+                        "value->{$code}",
+                        'like',
+                        $searchLike
+                    )->orWhere(
+                        "type->{$code}",
+                        'like',
+                        $searchLike
+                    );
+                }
 
-                        /*
-                 * Pad title
-                 */
-                        $padQuery
-                            ->whereRaw(
-                                "JSON_UNQUOTE(JSON_EXTRACT(title, '$.en')) LIKE ?",
-                                [$searchLike]
-                            )
-                            ->orWhereRaw(
-                                "JSON_UNQUOTE(JSON_EXTRACT(title, '$.gu')) LIKE ?",
-                                [$searchLike]
-                            )
+                // ───────────────────────────────────────────────────────
+                // RELATED PADS – FIXED
+                // ───────────────────────────────────────────────────────
 
-                            /*
-                     * Pad lyrics / value
-                     */
-                            ->orWhereRaw(
-                                "JSON_UNQUOTE(JSON_EXTRACT(value, '$.en')) LIKE ?",
-                                [$searchLike]
-                            )
-                            ->orWhereRaw(
-                                "JSON_UNQUOTE(JSON_EXTRACT(value, '$.gu')) LIKE ?",
-                                [$searchLike]
-                            )
-                            /*
-                     * Pad status
-                     */
-                            ->orWhere('status', 'LIKE', $searchLike)
+                $q->orWhereHas('pads', function ($padQuery) use (
+                    $searchLike,
+                    $locales
+                ) {
 
-                            /*
-                     * Establish date
-                     */
-                            ->orWhere('establish_date', 'LIKE', $searchLike)
+                    // Wrap pad-level conditions so foreign key stays AND
+                    $padQuery->where(function ($pq) use ($searchLike, $locales) {
 
-                            /*
-                     * Pad Categories
-                     */
-                            ->orWhereHas('categories', function ($categoryQuery) use ($searchLike) {
-                                $categoryQuery
-                                    ->whereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(type, '$.en')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(type, '$.gu')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(value, '$.en')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(value, '$.gu')) LIKE ?",
-                                        [$searchLike]
-                                    );
-                            })
-                            //    Recorded Version
-                            ->orWhereHas('recordedVersion', function ($recordingQuery) use ($searchLike) {
-                                $recordingQuery
-                                    ->whereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(singer, '$.en')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(singer, '$.gu')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(publisher, '$.en')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(publisher, '$.gu')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(vocalization, '$.en')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(vocalization, '$.gu')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhere('media_type', 'LIKE', $searchLike)
-                                    ->orWhere('recording_type', 'LIKE', $searchLike)
-                                    ->orWhere('file_url', 'LIKE', $searchLike);
-                            });
-                    });
+                        // Pad title + value
+                        foreach ($locales as $code) {
+                            $pq->orWhere(
+                                "title->{$code}",
+                                'like',
+                                $searchLike
+                            )->orWhere(
+                                "value->{$code}",
+                                'like',
+                                $searchLike
+                            );
+                        }
+
+                        // Pad status + establish date
+                        $pq->orWhere('status', 'like', $searchLike)
+                            ->orWhere('establish_date', 'like', $searchLike);
+                    })
+
+                        // Pad categories – FIXED
+                        ->orWhereHas(
+                            'categories',
+                            function ($categoryQuery) use (
+                                $searchLike,
+                                $locales
+                            ) {
+                                $categoryQuery->where(function ($cq) use ($searchLike, $locales) {
+                                    foreach ($locales as $code) {
+                                        $cq->orWhere(
+                                            "type->{$code}",
+                                            'like',
+                                            $searchLike
+                                        )->orWhere(
+                                            "value->{$code}",
+                                            'like',
+                                            $searchLike
+                                        );
+                                    }
+                                });
+                            }
+                        )
+
+                        // Recorded version – FIXED
+                        ->orWhereHas(
+                            'recordedVersion',
+                            function ($recordingQuery) use (
+                                $searchLike,
+                                $locales
+                            ) {
+                                $recordingQuery->where(function ($rq) use ($searchLike, $locales) {
+                                    foreach ($locales as $code) {
+                                        $rq->orWhere(
+                                            "singer->{$code}",
+                                            'like',
+                                            $searchLike
+                                        )->orWhere(
+                                            "publisher->{$code}",
+                                            'like',
+                                            $searchLike
+                                        )->orWhere(
+                                            "vocalization->{$code}",
+                                            'like',
+                                            $searchLike
+                                        );
+                                    }
+
+                                    $rq->orWhere('media_type', 'like', $searchLike)
+                                        ->orWhere('recording_type', 'like', $searchLike)
+                                        ->orWhere('file_url', 'like', $searchLike);
+                                });
+                            }
+                        );
+                });
             });
         }
+        // ───────────────────────────────────────────────────────────────
+        // PAGINATION + LOCALIZED RESPONSE
+        // ───────────────────────────────────────────────────────────────
 
         $events = $query
-            ->withCount('pads')
             ->latest()
             ->paginate(10)
-            ->withQueryString();
+            ->withQueryString()
+            ->through(function ($category) use ($locale) {
+                return [
+                    'id' => $category->id,
 
-        return Inertia::render('Admin/Categories/Event/EventList', [
-            'events' => $events,
-            'filters' => [
-                'search' => $search,
-                'letter' => $letter,
-            ],
-            'locale' => app()->getLocale(),
-        ]);
+                    'type' => $this->t(
+                        $category,
+                        'type',
+                        $locale
+                    ),
+
+                    'value' => $this->t(
+                        $category,
+                        'value',
+                        $locale
+                    ),
+
+                    // Keep complete translations for frontend if needed
+                    'value_map' => $category->getTranslations('value'),
+
+                    'pads_count' => $category->pads_count,
+
+                    'created_at' => optional(
+                        $category->created_at
+                    )?->toIso8601String(),
+                ];
+            });
+
+        return Inertia::render(
+            'Admin/Categories/Event/EventList',
+            [
+                'events' => $events,
+
+                'filters' => [
+                    'search' => $search,
+                    'letter' => $letter,
+                ],
+
+                'locale' => $locale,
+            ]
+        );
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // CREATE FORM
+    // ─────────────────────────────────────────────────────────────────────
 
     public function eventForm()
     {
-        return Inertia::render('Admin/Categories/Event/EventForm', [
-            'locale' => app()->getLocale(),
-        ]);
+        return Inertia::render(
+            'Admin/Categories/Event/EventForm',
+            [
+                'languages' => Language::orderBy('id')
+                    ->get(['id', 'code', 'name']),
+            ]
+        );
     }
 
-    // public function showPads(Category $event)
-    // {
-    //     $event->load(['pads' => function ($q) {
-    //         $q->latest();
-    //     }]);
-
-    //     return Inertia::render('Admin/Categories/Events/Pads', [
-    //         'event' => $event,
-    //         'pads'  => $event->pads,
-    //     ]);
-    // }
+    // ─────────────────────────────────────────────────────────────────────
+    // STORE
+    // ─────────────────────────────────────────────────────────────────────
 
     public function eventStore($rolePrefix, Request $request)
     {
-        // dd($request->all());
-        $request->validate([
-            'value.en' => ['nullable', 'string', 'max:255'],
-            'value.gu' => ['nullable', 'string', 'max:255'],
-        ]);
+        $locale = $this->resolveLocale(
+            $request->input('locale')
+        );
 
-        $value = [
-            'en' => $request->input('value.en', ''),
-            'gu' => $request->input('value.gu', ''),
+        $locales = $this->supportedLocales();
+
+        // Dynamic validation
+        $rules = [
+            'locale' => 'nullable|string',
         ];
 
+        foreach ($locales as $code) {
+            $rules["value.{$code}"] = 'nullable|string|max:255';
+        }
+
+        $validated = $request->validate($rules);
+
         // At least one language is required
-        if (empty(trim($value['en'])) && empty(trim($value['gu']))) {
+        $hasValue = false;
+
+        foreach ($locales as $code) {
+            if (
+                trim(
+                    $validated['value'][$code] ?? ''
+                ) !== ''
+            ) {
+                $hasValue = true;
+                break;
+            }
+        }
+
+        if (!$hasValue) {
             return back()
                 ->withErrors([
-                    'value.en' => 'Event name is required.',
+                    "value.{$locale}" => 'event_name_required',
                 ])
                 ->withInput();
         }
 
-        Category::create([
-            'type' => [
-                'en' => 'Event',
-                'gu' => 'પ્રસંગ',
-            ],
-            'value' => $value,
-            'created_by' => auth()->id(),
-        ]);
+        $event = new Category();
 
-        return redirect()
-            ->route('role.category.eventlist', [
-                'rolePrefix' => $rolePrefix,
-            ])
-            ->with('success', 'Event created successfully.');
-    }
+        $event->created_by = Auth::id();
 
+        // Canonical Event type
+        $event->setTranslation(
+            'type',
+            'en',
+            $this->eventTypeKey()
+        );
 
-    public function eventEdit($rolePrefix, Category $event)
-    {
-        // dd($event);
-        $typeEn = $event->getTranslation('type', 'en', false);
-        if ($typeEn !== 'Event') {
-            abort(404);
+        // Set Event translation for every supported language
+        foreach ($locales as $code) {
+            if ($code === 'en') {
+                continue;
+            }
+
+            $event->setTranslation(
+                'type',
+                $code,
+                $this->eventTypeTranslation($code)
+            );
         }
 
-        return Inertia::render('Admin/Categories/Event/EventForm', [
-            'event' => [
-                'id'    => $event->id,
-                'value' => [
-                    'en' => $event->getTranslation('value', 'en', false) ?: '',
-                    'gu' => $event->getTranslation('value', 'gu', false) ?: '',
-                ],
-            ],
-        ]);
-    }
+        // Set submitted values
+        foreach ($locales as $code) {
+            $text = trim(
+                $validated['value'][$code] ?? ''
+            );
 
-    public function eventUpdate($rolePrefix, Request $request, Category $event)
-    {
-        $locale = $request->input('locale', app()->getLocale());
-        if (! in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
+            if ($text !== '') {
+                $event->setTranslation(
+                    'value',
+                    $code,
+                    $text
+                );
+            }
         }
 
-        $validated = $request->validate([
-            'value.en' => ['nullable', 'string', 'max:255'],
-            'value.gu' => ['nullable', 'string', 'max:255'],
-            'locale'   => ['nullable', 'string', 'in:en,gu'],
-        ]);
-
-        $valueEn = trim($validated['value']['en'] ?? '');
-        $valueGu = trim($validated['value']['gu'] ?? '');
-
-        if ($valueEn === '' && $valueGu === '') {
-            return back()->withErrors([
-                "value.{$locale}" => $locale === 'gu'
-                    ? 'પ્રસંગનુ નામ જરૂરી છે.'
-                    : 'Event name is required.',
-            ])->withInput();
-        }
-
-        $event->setTranslation('type', 'en', 'Event');
-        $event->setTranslation('type', 'gu', 'પ્રસંગ');
-        $event->setTranslation('value', 'en', $valueEn);
-        $event->setTranslation('value', 'gu', $valueGu);
         $event->save();
 
         return redirect()
-            ->route('role.category.creatorlist', [
-                'rolePrefix' => $rolePrefix,
-            ])
-            ->with('success', $locale === 'gu'
-                ? 'પ્રસંગ અપડેટ થયું.'
-                : 'Event updated successfully.');
+            ->route(
+                'role.category.eventlist',
+                [
+                    'rolePrefix' => $rolePrefix,
+                ]
+            )
+            ->with(
+                'success',
+                'event_created_success'
+            );
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // EDIT FORM
+    // ─────────────────────────────────────────────────────────────────────
 
-    public function eventPadsShow($rolePrefix, Category $event)
-    {
-        // dd($event);
-        $locale = app()->getLocale();
-        if (! in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
+    public function eventEdit(
+        $rolePrefix,
+        Category $event
+    ) {
+        if (!$this->isEventType($event)) {
+            abort(404);
         }
 
-        // Only allow Creator type categories
-        $typeEn = $event->getTranslation('type', 'en', false);
-        $typeGu = $event->getTranslation('type', 'gu', false);
+        $locales = $this->supportedLocales();
 
-        // dd($typeEn);
-        if (
-            ! in_array(strtolower($typeEn), ['event']) &&
-            ! in_array($typeGu, ['રચયિતા', 'રચયિતા'])
-        ) {
-            abort(404, 'This category is not a Creator.');
+        $valueMap = [];
+
+        foreach ($locales as $code) {
+            $valueMap[$code] = $event->getTranslation(
+                'value',
+                $code,
+                false
+            ) ?: '';
         }
 
-        // Helper to resolve translatable fields
-        $t = function ($model, string $field) use ($locale): string {
-            if (! $model) {
-                return '';
+        return Inertia::render(
+            'Admin/Categories/Event/EventForm',
+            [
+                'event' => [
+                    'id' => $event->id,
+                    'value' => $valueMap,
+                ],
+
+                'languages' => Language::orderBy('id')
+                    ->get(['id', 'code', 'name']),
+            ]
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // UPDATE
+    // ─────────────────────────────────────────────────────────────────────
+
+    public function eventUpdate(
+        $rolePrefix,
+        Request $request,
+        Category $event
+    ) {
+        if (!$this->isEventType($event)) {
+            abort(404);
+        }
+
+        $locale = $this->resolveLocale(
+            $request->input('locale')
+        );
+
+        $locales = $this->supportedLocales();
+
+        // Dynamic validation
+        $rules = [
+            'locale' => 'nullable|string',
+        ];
+
+        foreach ($locales as $code) {
+            $rules["value.{$code}"] = 'nullable|string|max:255';
+        }
+
+        $validated = $request->validate($rules);
+
+        // At least one language must contain value
+        $hasValue = false;
+
+        foreach ($locales as $code) {
+            if (
+                trim(
+                    $validated['value'][$code] ?? ''
+                ) !== ''
+            ) {
+                $hasValue = true;
+                break;
             }
-            $value = $model->getTranslation($field, $locale, false)
-                ?: $model->getTranslation($field, 'en', false)
-                ?: $model->getTranslation($field, 'gu', false);
+        }
 
-            return is_string($value) ? $value : '';
-        };
+        if (!$hasValue) {
+            return back()
+                ->withErrors([
+                    "value.{$locale}" =>
+                    'event_name_required',
+                ])
+                ->withInput();
+        }
 
-        // Get all Pads that have this category
-        $pads = $event->pads()                          // ← relation must exist
+        // Keep canonical Event type
+        $event->setTranslation(
+            'type',
+            'en',
+            $this->eventTypeKey()
+        );
+
+        // Keep Event type translations dynamic
+        foreach ($locales as $code) {
+            if ($code === 'en') {
+                continue;
+            }
+
+            $event->setTranslation(
+                'type',
+                $code,
+                $this->eventTypeTranslation($code)
+            );
+        }
+
+        // Update values
+        foreach ($locales as $code) {
+            $text = trim(
+                $validated['value'][$code] ?? ''
+            );
+
+            if ($text !== '') {
+                $event->setTranslation(
+                    'value',
+                    $code,
+                    $text
+                );
+            }
+        }
+
+        $event->save();
+
+        return redirect()
+            ->route(
+                'role.category.eventlist',
+                [
+                    'rolePrefix' => $rolePrefix,
+                ]
+            )
+            ->with(
+                'success',
+                'event_updated_success'
+            );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // SHOW PADS
+    // ─────────────────────────────────────────────────────────────────────
+
+    public function eventPadsShow(
+        $rolePrefix,
+        Category $event
+    ) {
+        if (!$this->isEventType($event)) {
+            abort(
+                404,
+                'This category is not an Event.'
+            );
+        }
+
+        $locale = $this->resolveLocale();
+
+        $pads = $event->pads()
             ->with([
                 'categories:id,type,value',
                 'recordedVersion',
             ])
             ->latest()
             ->get()
-            ->map(function ($pad) use ($t) {
+            ->map(function ($pad) use ($locale) {
+
                 return [
-                    'id'             => $pad->id,
-                    'title'          => $t($pad, 'title'),
-                    'value'          => $t($pad, 'value'),
-                    'status'         => $pad->status,
-                    'establish_date' => $pad->establish_date
-                        ? \Carbon\Carbon::parse($pad->establish_date)->format('Y-m-d')
+                    'id' => $pad->id,
+
+                    'title' => $this->t(
+                        $pad,
+                        'title',
+                        $locale
+                    ),
+
+                    'value' => $this->t(
+                        $pad,
+                        'value',
+                        $locale
+                    ),
+
+                    'status' => $pad->status,
+
+                    'establish_date' =>
+                    $pad->establish_date
+                        ? \Carbon\Carbon::parse(
+                            $pad->establish_date
+                        )->format('Y-m-d')
                         : null,
-                    'created_at'     => optional($pad->created_at)?->toIso8601String(),
-                    'updated_at'     => optional($pad->updated_at)?->toIso8601String(),
-                    'categories'     => $pad->categories->map(fn($c) => [
-                        'id'    => $c->id,
-                        'type'  => $t($c, 'type'),
-                        'value' => $t($c, 'value'),
-                    ])->values(),
-                    'recorded_version' => $pad->recordedVersion ? [
-                        'id'             => $pad->recordedVersion->id,
-                        'media_type'     => $pad->recordedVersion->media_type,
-                        'file_url'       => $pad->recordedVersion->file_url,
-                        'singer'         => $t($pad->recordedVersion, 'singer'),
-                        'publisher'      => $t($pad->recordedVersion, 'publisher'),
-                        'vocalization'   => $t($pad->recordedVersion, 'vocalization'),
-                        'recording_type' => $pad->recordedVersion->recording_type,
-                    ] : null,
+
+                    'created_at' =>
+                    optional(
+                        $pad->created_at
+                    )?->toIso8601String(),
+
+                    'updated_at' =>
+                    optional(
+                        $pad->updated_at
+                    )?->toIso8601String(),
+
+                    'categories' =>
+                    $pad->categories
+                        ->map(function ($category) use (
+                            $locale
+                        ) {
+                            return [
+                                'id' => $category->id,
+
+                                'type' => $this->t(
+                                    $category,
+                                    'type',
+                                    $locale
+                                ),
+
+                                'value' => $this->t(
+                                    $category,
+                                    'value',
+                                    $locale
+                                ),
+                            ];
+                        })
+                        ->values(),
+
+                    'recorded_version' =>
+                    $pad->recordedVersion
+                        ? [
+                            'id' =>
+                            $pad->recordedVersion->id,
+
+                            'media_type' =>
+                            $pad->recordedVersion->media_type,
+
+                            'file_url' =>
+                            $pad->recordedVersion->file_url,
+
+                            'singer' => $this->t(
+                                $pad->recordedVersion,
+                                'singer',
+                                $locale
+                            ),
+
+                            'publisher' => $this->t(
+                                $pad->recordedVersion,
+                                'publisher',
+                                $locale
+                            ),
+
+                            'vocalization' => $this->t(
+                                $pad->recordedVersion,
+                                'vocalization',
+                                $locale
+                            ),
+
+                            'recording_type' =>
+                            $pad->recordedVersion
+                                ->recording_type,
+                        ]
+                        : null,
                 ];
             });
-        $eventPayload = [
-            'id'    => $event->id,
-            'name'  => $t($event, 'value'),   // "Bramhanand swami" / "બ્રહ્માનંદ સ્વામી"
-            'type'  => $t($event, 'type'),    // "Creator" / "રચયિતા"
-        ];
 
-        return Inertia::render('Admin/Categories/Event/EventShowPads', [
-            'swami'  => $eventPayload,   // keep key name "swami" for frontend
-            'pads'   => $pads,
-            'locale' => $locale,
-        ]);
+        return Inertia::render(
+            'Admin/Categories/Event/EventShowPads',
+            [
+                'swami' => [
+                    'id' => $event->id,
+
+                    'name' => $this->t(
+                        $event,
+                        'value',
+                        $locale
+                    ),
+
+                    'type' => $this->t(
+                        $event,
+                        'type',
+                        $locale
+                    ),
+                ],
+
+                'pads' => $pads,
+
+                'locale' => $locale,
+            ]
+        );
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // DESTROY
+    // ─────────────────────────────────────────────────────────────────────
 
-    public function eventDestroy($rolePrefix, Request $request, $id)
-    {
+    public function eventDestroy(
+        $rolePrefix,
+        Request $request,
+        $id
+    ) {
         $event = Category::findOrFail($id);
 
-        // Make sure this category is actually Event
-        $typeEn = $event->getTranslation('type', 'en', false);
-
-        if ($typeEn !== 'Event') {
+        if (!$this->isEventType($event)) {
             abort(404);
         }
 
-        $locale = app()->getLocale();
-
-        $deleteRelatedPads = $request->boolean('delete_related_pads');
+        $deleteRelatedPads =
+            $request->boolean('delete_related_pads');
 
         if ($deleteRelatedPads) {
 
-            // Get only pads linked to this Event
-            $padIds = $event->pads()->pluck('pads.id');
+            $padIds = $event->pads()
+                ->pluck('pads.id');
 
-            // Delete related pads
             if ($padIds->isNotEmpty()) {
-                \App\Models\Pad::whereIn('id', $padIds)->delete();
+                Pad::whereIn(
+                    'id',
+                    $padIds
+                )->delete();
             }
         }
 
-        // Delete Event
         $event->delete();
 
-        $message = $deleteRelatedPads
-            ? ($locale === 'gu'
-                ? 'પ્રસંગ અને તેના બધા પદો સફળતાપૂર્વક કાઢી નાખ્યા.'
-                : 'Event and its related pads deleted successfully.')
-            : ($locale === 'gu'
-                ? 'પ્રસંગ સફળતાપૂર્વક કાઢી નાખી.'
-                : 'Event deleted successfully.');
-
-        return back()->with('success', $message);
+        return redirect()
+            ->route(
+                'role.category.eventlist',
+                [
+                    'rolePrefix' => $rolePrefix,
+                ]
+            )
+            ->with(
+                'success',
+                $deleteRelatedPads
+                    ? 'event_and_pads_deleted_success'
+                    : 'event_deleted_success'
+            );
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // BULK DESTROY
+    // ─────────────────────────────────────────────────────────────────────
 
-    public function bulkDestroy($rolePrefix, Request $request)
-    {
+    public function bulkDestroy(
+        $rolePrefix,
+        Request $request
+    ) {
         $request->validate([
-            'ids'   => 'required|array',
-            'ids.*' => 'integer|exists:categories,id',
+            'ids' => 'required|array',
+            'ids.*' =>
+            'integer|exists:categories,id',
         ]);
 
         $ids = $request->input('ids', []);
-        $deletePads = $request->boolean('delete_related_pads');
-        $locale = app()->getLocale();
+
+        $deletePads =
+            $request->boolean('delete_related_pads');
 
         if (empty($ids)) {
             return back()->with(
                 'error',
-                $locale === 'gu'
-                    ? 'કોઈ પ્રસંગ પસંદ કરવામાં આવ્યો નથી.'
-                    : 'No events selected.'
+                'select_at_least_one'
             );
         }
 
-        $events = Category::whereIn('id', $ids)->get();
+        $events = Category::whereIn(
+            'id',
+            $ids
+        )->get();
 
-        if ($deletePads) {
-            foreach ($events as $event) {
+        foreach ($events as $event) {
 
-                // Get only pads linked to this Event
-                $padIds = $event->pads()->pluck('pads.id');
+            // Only process Event categories
+            if (!$this->isEventType($event)) {
+                continue;
+            }
 
-                // Delete related pads
+            if ($deletePads) {
+
+                $padIds = $event->pads()
+                    ->pluck('pads.id');
+
                 if ($padIds->isNotEmpty()) {
-                    \App\Models\Pad::whereIn('id', $padIds)->delete();
+                    Pad::whereIn(
+                        'id',
+                        $padIds
+                    )->delete();
                 }
             }
         }
 
-        // Delete Events
-        Category::whereIn('id', $ids)->delete();
+        // Delete only Event categories
+        foreach ($events as $event) {
+            if ($this->isEventType($event)) {
+                $event->delete();
+            }
+        }
 
-        $message = $deletePads
-            ? ($locale === 'gu'
-                ? 'પ્રસંગો અને તેમના બધા પદો સફળતાપૂર્વક કાઢી નાખવામાં આવ્યા.'
-                : 'Events and their related pads deleted successfully.')
-            : ($locale === 'gu'
-                ? 'પ્રસંગો સફળતાપૂર્વક કાઢી નાખવામાં આવ્યા.'
-                : 'Events deleted successfully.');
-
-        return back()->with('success', $message);
+        return back()->with(
+            'success',
+            $deletePads
+                ? 'events_and_pads_deleted_success'
+                : 'events_deleted_success'
+        );
     }
 }

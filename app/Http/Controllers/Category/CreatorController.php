@@ -4,158 +4,159 @@ namespace App\Http\Controllers\Category;
 
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Models\Language;
 use App\Models\Pad;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 
 class CreatorController extends Controller
 {
+    // ─── Helpers (same pattern as PadController) ─────────────────────────────
+
+    private function supportedLocales(): array
+    {
+        $codes = Language::query()->pluck('code')->filter()->values()->all();
+
+        return !empty($codes) ? $codes : ['en', 'gu'];
+    }
+
+    private function resolveLocale(?string $locale = null): string
+    {
+        $locale = $locale ?: app()->getLocale();
+        $locales = $this->supportedLocales();
+
+        return in_array($locale, $locales, true) ? $locale : ($locales[0] ?? 'en');
+    }
+
+    private function t($model, string $field, string $locale): string
+    {
+        if (!$model) {
+            return '';
+        }
+
+        $value = $model->getTranslation($field, $locale, false);
+        if (is_string($value) && $value !== '') {
+            return $value;
+        }
+
+        foreach ($this->supportedLocales() as $code) {
+            $fallback = $model->getTranslation($field, $code, false);
+            if (is_string($fallback) && $fallback !== '') {
+                return $fallback;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Canonical type key used for "Creator".
+     * We always store English as "Creator" and other languages as translations.
+     * This keeps queries language-agnostic.
+     */
+    private function creatorTypeKey(): string
+    {
+        return 'Creator';
+    }
+
+    /**
+     * Check whether a category is a Creator type (language-agnostic).
+     */
+    private function isCreatorType(Category $category): bool
+    {
+        $typeEn = strtolower(trim($category->getTranslation('type', 'en', false) ?? ''));
+
+        return $typeEn === strtolower($this->creatorTypeKey());
+    }
+
+    // ─── LIST ────────────────────────────────────────────────────────────────
 
     public function creatorList(Request $request)
     {
-        $locale = app()->getLocale();
-        if (! in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
-        }
+        $locale = $this->resolveLocale();
+        $locales = $this->supportedLocales();
 
-        $search = trim($request->get('search', ''));
-
-        $letter = trim($request->get('letter', ''));
-
+        $search = trim((string) $request->get('search', ''));
+        $letter = trim((string) $request->get('letter', ''));
 
         $query = Category::query()
-            ->where(function ($q) {
-                // Only Creator type
-                $q->where(function ($q2) {
-                    $q2->whereRaw("LOWER(JSON_UNQUOTE(JSON_EXTRACT(type, '$.en'))) = 'creator'")
-                        ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(type, '$.gu')) IN ('રચયિતા', 'રચયિતા')");
-                });
+            ->where(function ($q) use ($locales) {
+                // Match type = "Creator" in any supported language
+                foreach ($locales as $code) {
+                    $q->orWhere("type->{$code}", $this->creatorTypeKey());
+                }
+                // Also match the Gujarati (and any future) translation if stored differently
+                $q->orWhere("type->gu", 'રચયિતા');
             })
-            ->withCount('pads');   // important for the "Total Pads" column
+            ->withCount('pads');
 
+        // Letter filter (dynamic per current locale)
         if ($letter !== '') {
-            $query->where(function ($q) use ($letter, $locale) {
+            $query->where(function ($q) use ($letter, $locale, $locales) {
+                // Prefer current locale
+                $q->orWhere("value->{$locale}", 'like', $letter . '%');
 
-                if ($locale === 'gu') {
-                    $q->whereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(value, '$.gu')) LIKE ?",
-                        [$letter . '%']
-                    );
-                } else {
-                    $q->whereRaw(
-                        "LOWER(JSON_UNQUOTE(JSON_EXTRACT(value, '$.en'))) LIKE ?",
-                        [strtolower($letter) . '%']
-                    );
+                // Fallback to all other locales
+                foreach ($locales as $code) {
+                    if ($code === $locale) {
+                        continue;
+                    }
+                    $q->orWhere("value->{$code}", 'like', $letter . '%');
                 }
             });
         }
+
+        // Search (fully dynamic across all locales + related pads)
         if ($search !== '') {
             $searchLike = '%' . $search . '%';
 
-            $query->where(function ($q) use ($search, $searchLike) {
+            $query->where(function ($q) use ($search, $searchLike, $locales) {
+                // ID search
                 if (is_numeric($search)) {
-                    $q->orWhere('id', $search);   // exact ID match
-                    $q->orWhere('id', 'like', $searchLike);
+                    $q->where('id', $search)
+                        ->orWhere('id', 'like', $searchLike);
                 }
-                /*
-             * Creator itself
-             */
-                // Search in BOTH English and Gujarati values
-                $q->whereRaw("JSON_UNQUOTE(JSON_EXTRACT(value, '$.en')) LIKE ?", [$searchLike])
-                    ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(value, '$.gu')) LIKE ?", [$searchLike])
 
-                    // Optional: also search type (rarely needed)
-                    ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(type, '$.en')) LIKE ?", [$searchLike])
-                    ->orWhereRaw("JSON_UNQUOTE(JSON_EXTRACT(type, '$.gu')) LIKE ?", [$searchLike]);
+                // Creator name / type in every language
+                foreach ($locales as $code) {
+                    $q->orWhere("value->{$code}", 'like', $searchLike)
+                        ->orWhere("type->{$code}", 'like', $searchLike);
+                }
 
+                // Related pads – FIXED (wrap conditions so foreign key stays AND)
+                $q->orWhereHas('pads', function ($padQuery) use ($searchLike, $locales) {
+                    $padQuery->where(function ($pq) use ($searchLike, $locales) {
+                        foreach ($locales as $code) {
+                            $pq->orWhere("title->{$code}", 'like', $searchLike)
+                                ->orWhere("value->{$code}", 'like', $searchLike);
+                        }
 
-                //   Related Pads
-
-                $q->orWhereHas('pads', function ($padQuery) use ($searchLike) {
-
-                    /*
-                 * Pad title + lyrics
-                 */
-                    $padQuery->whereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(title, '$.en')) LIKE ?",
-                        [$searchLike]
-                    )
-                        ->orWhereRaw(
-                            "JSON_UNQUOTE(JSON_EXTRACT(title, '$.gu')) LIKE ?",
-                            [$searchLike]
-                        )
-                        ->orWhereRaw(
-                            "JSON_UNQUOTE(JSON_EXTRACT(value, '$.en')) LIKE ?",
-                            [$searchLike]
-                        )
-                        ->orWhereRaw(
-                            "JSON_UNQUOTE(JSON_EXTRACT(value, '$.gu')) LIKE ?",
-                            [$searchLike]
-                        )
-
-                        /*
-                 * Pad normal fields
-                 */
-                        ->orWhere('status', 'LIKE', $searchLike)
-                        ->orWhere('establish_date', 'LIKE', $searchLike)
-
-                        /*
-                 * Pad Categories
-                 */
-                        ->orWhereHas('categories', function ($categoryQuery) use ($searchLike) {
-                            $categoryQuery
-                                ->whereRaw(
-                                    "JSON_UNQUOTE(JSON_EXTRACT(type, '$.en')) LIKE ?",
-                                    [$searchLike]
-                                )
-                                ->orWhereRaw(
-                                    "JSON_UNQUOTE(JSON_EXTRACT(type, '$.gu')) LIKE ?",
-                                    [$searchLike]
-                                )
-                                ->orWhereRaw(
-                                    "JSON_UNQUOTE(JSON_EXTRACT(value, '$.en')) LIKE ?",
-                                    [$searchLike]
-                                )
-                                ->orWhereRaw(
-                                    "JSON_UNQUOTE(JSON_EXTRACT(value, '$.gu')) LIKE ?",
-                                    [$searchLike]
-                                );
+                        $pq->orWhere('status', 'like', $searchLike)
+                            ->orWhere('establish_date', 'like', $searchLike);
+                    })
+                        ->orWhereHas('categories', function ($cq) use ($searchLike, $locales) {
+                            $cq->where(function ($c) use ($searchLike, $locales) {
+                                foreach ($locales as $code) {
+                                    $c->orWhere("type->{$code}", 'like', $searchLike)
+                                        ->orWhere("value->{$code}", 'like', $searchLike);
+                                }
+                            });
                         })
+                        ->orWhereHas('recordedVersion', function ($rq) use ($searchLike, $locales) {
+                            $rq->where(function ($r) use ($searchLike, $locales) {
+                                foreach ($locales as $code) {
+                                    $r->orWhere("singer->{$code}", 'like', $searchLike)
+                                        ->orWhere("publisher->{$code}", 'like', $searchLike)
+                                        ->orWhere("vocalization->{$code}", 'like', $searchLike);
+                                }
 
-                        /*
-                 * Recording
-                 */
-                        ->orWhereHas('recordedVersion', function ($recordingQuery) use ($searchLike) {
-                            $recordingQuery
-                                ->whereRaw(
-                                    "JSON_UNQUOTE(JSON_EXTRACT(singer, '$.en')) LIKE ?",
-                                    [$searchLike]
-                                )
-                                ->orWhereRaw(
-                                    "JSON_UNQUOTE(JSON_EXTRACT(singer, '$.gu')) LIKE ?",
-                                    [$searchLike]
-                                )
-                                ->orWhereRaw(
-                                    "JSON_UNQUOTE(JSON_EXTRACT(publisher, '$.en')) LIKE ?",
-                                    [$searchLike]
-                                )
-                                ->orWhereRaw(
-                                    "JSON_UNQUOTE(JSON_EXTRACT(publisher, '$.gu')) LIKE ?",
-                                    [$searchLike]
-                                )
-                                ->orWhereRaw(
-                                    "JSON_UNQUOTE(JSON_EXTRACT(vocalization, '$.en')) LIKE ?",
-                                    [$searchLike]
-                                )
-                                ->orWhereRaw(
-                                    "JSON_UNQUOTE(JSON_EXTRACT(vocalization, '$.gu')) LIKE ?",
-                                    [$searchLike]
-                                )
-                                ->orWhere('media_type', 'LIKE', $searchLike)
-                                ->orWhere('recording_type', 'LIKE', $searchLike)
-                                ->orWhere('file_url', 'LIKE', $searchLike);
+                                $r->orWhere('media_type', 'like', $searchLike)
+                                    ->orWhere('recording_type', 'like', $searchLike)
+                                    ->orWhere('file_url', 'like', $searchLike);
+                            });
                         });
                 });
             });
@@ -164,292 +165,289 @@ class CreatorController extends Controller
         $creators = $query
             ->latest()
             ->paginate(10)
-            ->withQueryString();   // keeps the search param in pagination links
+            ->withQueryString()
+            ->through(function ($category) use ($locale) {
+                return [
+                    'id' => $category->id,
+                    'type' => $this->t($category, 'type', $locale),
+                    'value' => $this->t($category, 'value', $locale), // already localized string
+                    // Keep full map if frontend needs all languages
+                    'value_map' => $category->getTranslations('value'),
+                    'pads_count' => $category->pads_count,
+                    'created_at' => optional($category->created_at)?->toIso8601String(),
+                ];
+            });
 
-
-        return Inertia::render('Admin/Categories/Creator/CreatorList', [   // adjust path if needed
+        return Inertia::render('Admin/Categories/Creator/CreatorList', [
             'creators' => $creators,
-            'filters'  => [
+            'filters' => [
                 'search' => $search,
                 'letter' => $letter,
             ],
-            'locale'   => $locale,
+            'locale' => $locale,
         ]);
     }
+
+    // ─── CREATE FORM ─────────────────────────────────────────────────────────
 
     public function creatorForm()
     {
-        return Inertia::render('Admin/Categories/Creator/CreatorForm');
+        return Inertia::render('Admin/Categories/Creator/CreatorForm', [
+            'languages' => Language::orderBy('id')->get(['id', 'code', 'name']),
+        ]);
     }
+
+    // ─── STORE ───────────────────────────────────────────────────────────────
 
     public function creatorStore($rolePrefix, Request $request)
     {
-        $locale = $request->input('locale', app()->getLocale());
-        if (! in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
+        $locale = $this->resolveLocale($request->input('locale'));
+        $locales = $this->supportedLocales();
+
+        // Dynamic validation: accept value.{any_locale}
+        $rules = [
+            'locale' => 'nullable|string',
+        ];
+        foreach ($locales as $code) {
+            $rules["value.{$code}"] = 'nullable|string|max:255';
         }
 
-        $validated = $request->validate([
-            'value.en' => ['nullable', 'string', 'max:255'],
-            'value.gu' => ['nullable', 'string', 'max:255'],
-            'locale'   => ['nullable', 'string', 'in:en,gu'],
-        ]);
+        $validated = $request->validate($rules);
 
-        // At least one language value required
-        $valueEn = trim($validated['value']['en'] ?? '');
-        $valueGu = trim($validated['value']['gu'] ?? '');
+        // At least one language must have a value
+        $hasValue = false;
+        foreach ($locales as $code) {
+            if (trim($validated['value'][$code] ?? '') !== '') {
+                $hasValue = true;
+                break;
+            }
+        }
 
-        if ($valueEn === '' && $valueGu === '') {
-            return back()->withErrors([
-                "value.{$locale}" => $locale === 'gu'
-                    ? 'રચયિતાનું નામ જરૂરી છે.'
-                    : 'Creator name is required.',
-            ])->withInput();
+        if (!$hasValue) {
+            return back()
+                ->withErrors(["value.{$locale}" => 'creator_name_required'])
+                ->withInput();
         }
 
         $category = new Category();
-        $category->setTranslation('type', 'en', 'Creator');
-        $category->setTranslation('type', 'gu', 'રચયિતા');
-        $category->setTranslation('value', 'en', $valueEn);
-        $category->setTranslation('value', 'gu', $valueGu);
-        $category->created_by = auth()->id();
+        $category->created_by = Auth::id();
+
+        // Always set the canonical English type key
+        $category->setTranslation('type', 'en', $this->creatorTypeKey());
+
+        // Set type translation for every supported language (fallback to English key)
+        foreach ($locales as $code) {
+            if ($code === 'en') {
+                continue;
+            }
+            // You can later load these from a language file if you want
+            $category->setTranslation('type', $code, $code === 'gu' ? 'રચયિતા' : $this->creatorTypeKey());
+        }
+
+        // Set value for every language that was submitted
+        foreach ($locales as $code) {
+            $text = trim($validated['value'][$code] ?? '');
+            if ($text !== '') {
+                $category->setTranslation('value', $code, $text);
+            }
+        }
+
         $category->save();
 
         return redirect()
-            ->route('role.category.creatorlist', [
-                'rolePrefix' => $rolePrefix,
-            ])
-            ->with(
-                'success',
-                $locale === 'gu'
-                    ? 'રચયિતા સફળતાપૂર્વક ઉમેરાયું.'
-                    : 'Creator added successfully.'
-            );
+            ->route('role.category.creatorlist', ['rolePrefix' => $rolePrefix])
+            ->with('success', 'creator_created_success');
     }
+
+    // ─── EDIT FORM ───────────────────────────────────────────────────────────
 
     public function creatorEdit($rolePrefix, Category $category)
     {
-        // Ensure it is a Creator type
-        // dd([
-        //     'id' => $category->id,
-        //     'raw_type' => $category->getRawOriginal('type'),
-        //     'type' => $category->type,
-        //     'translation' => $category->getTranslation('type', 'en', false),
-        // ]);
-        $typeEn = $category->getTranslation('type', 'en', false);
-
-        if ($typeEn !== 'Creator') {
+        if (!$this->isCreatorType($category)) {
             abort(404);
+        }
+
+        $locales = $this->supportedLocales();
+
+        $valueMap = [];
+        foreach ($locales as $code) {
+            $valueMap[$code] = $category->getTranslation('value', $code, false) ?: '';
         }
 
         return Inertia::render('Admin/Categories/Creator/CreatorForm', [
             'creator' => [
-                'id'    => $category->id,
-                'value' => [
-                    'en' => $category->getTranslation('value', 'en', false) ?: '',
-                    'gu' => $category->getTranslation('value', 'gu', false) ?: '',
-                ],
+                'id' => $category->id,
+                'value' => $valueMap,
             ],
+            'languages' => Language::orderBy('id')->get(['id', 'code', 'name']),
         ]);
     }
+
+    // ─── UPDATE ──────────────────────────────────────────────────────────────
 
     public function creatorUpdate($rolePrefix, Request $request, Category $category)
     {
-        $locale = $request->input('locale', app()->getLocale());
-        if (! in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
+        if (!$this->isCreatorType($category)) {
+            abort(404);
         }
 
-        $validated = $request->validate([
-            'value.en' => ['nullable', 'string', 'max:255'],
-            'value.gu' => ['nullable', 'string', 'max:255'],
-            'locale'   => ['nullable', 'string', 'in:en,gu'],
-        ]);
+        $locale = $this->resolveLocale($request->input('locale'));
+        $locales = $this->supportedLocales();
 
-        $valueEn = trim($validated['value']['en'] ?? '');
-        $valueGu = trim($validated['value']['gu'] ?? '');
-
-        if ($valueEn === '' && $valueGu === '') {
-            return back()->withErrors([
-                "value.{$locale}" => $locale === 'gu'
-                    ? 'ક્રિએટરનું નામ જરૂરી છે.'
-                    : 'Creator name is required.',
-            ])->withInput();
+        $rules = ['locale' => 'nullable|string'];
+        foreach ($locales as $code) {
+            $rules["value.{$code}"] = 'nullable|string|max:255';
         }
 
-        $category->setTranslation('type', 'en', 'Creator');
-        $category->setTranslation('type', 'gu', 'રચયિતા');
-        $category->setTranslation('value', 'en', $valueEn);
-        $category->setTranslation('value', 'gu', $valueGu);
+        $validated = $request->validate($rules);
+
+        $hasValue = false;
+        foreach ($locales as $code) {
+            if (trim($validated['value'][$code] ?? '') !== '') {
+                $hasValue = true;
+                break;
+            }
+        }
+
+        if (!$hasValue) {
+            return back()
+                ->withErrors(["value.{$locale}" => 'creator_name_required'])
+                ->withInput();
+        }
+
+        // Keep canonical type
+        $category->setTranslation('type', 'en', $this->creatorTypeKey());
+        foreach ($locales as $code) {
+            if ($code === 'en')
+                continue;
+            $category->setTranslation('type', $code, $code === 'gu' ? 'રચયિતા' : $this->creatorTypeKey());
+        }
+
+        foreach ($locales as $code) {
+            $text = trim($validated['value'][$code] ?? '');
+            if ($text !== '') {
+                $category->setTranslation('value', $code, $text);
+            }
+        }
+
         $category->save();
 
         return redirect()
-            ->route('role.category.creatorlist', [
-                'rolePrefix' => $rolePrefix,
-            ])
-            ->with(
-                'success',
-                $locale === 'gu'
-                    ? 'ક્રિએટર અપડેટ થયું.'
-                    : 'Creator updated successfully.'
-            );
+            ->route('role.category.creatorlist', ['rolePrefix' => $rolePrefix])
+            ->with('success', 'creator_updated_success');
     }
+
+    // ─── SHOW PADS ───────────────────────────────────────────────────────────
 
     public function creatorPadsShow($rolePrefix, Category $category)
     {
-        $locale = app()->getLocale();
-        if (! in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
-        }
-
-        // Only allow Creator type categories
-        $typeEn = $category->getTranslation('type', 'en', false);
-        $typeGu = $category->getTranslation('type', 'gu', false);
-
-        if (
-            ! in_array(strtolower($typeEn), ['creator']) &&
-            ! in_array($typeGu, ['રચયિતા', 'રચયિતા'])
-        ) {
+        if (!$this->isCreatorType($category)) {
             abort(404, 'This category is not a Creator.');
         }
 
-        // Helper to resolve translatable fields
-        $t = function ($model, string $field) use ($locale): string {
-            if (! $model) {
-                return '';
-            }
+        $locale = $this->resolveLocale();
 
-            $value = $model->getTranslation($field, $locale, false)
-                ?: $model->getTranslation($field, 'en', false)
-                ?: $model->getTranslation($field, 'gu', false);
-
-            return is_string($value) ? $value : '';
-        };
-
-        // Get all Pads that have this category
-        $pads = $category->pads()                          // ← relation must exist
-            ->with([
-                'categories:id,type,value',
-                'recordedVersion',
-            ])
+        $pads = $category->pads()
+            ->with(['categories:id,type,value', 'recordedVersion'])
             ->latest()
             ->get()
-            ->map(function ($pad) use ($t) {
+            ->map(function ($pad) use ($locale) {
                 return [
-                    'id'             => $pad->id,
-                    'title'          => $t($pad, 'title'),
-                    'value'          => $t($pad, 'value'),
-                    'status'         => $pad->status,
+                    'id' => $pad->id,
+                    'title' => $this->t($pad, 'title', $locale),
+                    'value' => $this->t($pad, 'value', $locale),
+                    'status' => $pad->status,
                     'establish_date' => $pad->establish_date
                         ? \Carbon\Carbon::parse($pad->establish_date)->format('Y-m-d')
                         : null,
-                    'created_at'     => optional($pad->created_at)?->toIso8601String(),
-                    'updated_at'     => optional($pad->updated_at)?->toIso8601String(),
-                    'categories'     => $pad->categories->map(fn($c) => [
-                        'id'    => $c->id,
-                        'type'  => $t($c, 'type'),
-                        'value' => $t($c, 'value'),
+                    'created_at' => optional($pad->created_at)?->toIso8601String(),
+                    'updated_at' => optional($pad->updated_at)?->toIso8601String(),
+                    'categories' => $pad->categories->map(fn($c) => [
+                        'id' => $c->id,
+                        'type' => $this->t($c, 'type', $locale),
+                        'value' => $this->t($c, 'value', $locale),
                     ])->values(),
                     'recorded_version' => $pad->recordedVersion ? [
-                        'id'             => $pad->recordedVersion->id,
-                        'media_type'     => $pad->recordedVersion->media_type,
-                        'file_url'       => $pad->recordedVersion->file_url,
-                        'singer'         => $t($pad->recordedVersion, 'singer'),
-                        'publisher'      => $t($pad->recordedVersion, 'publisher'),
-                        'vocalization'   => $t($pad->recordedVersion, 'vocalization'),
+                        'id' => $pad->recordedVersion->id,
+                        'media_type' => $pad->recordedVersion->media_type,
+                        'file_url' => $pad->recordedVersion->file_url,
+                        'singer' => $this->t($pad->recordedVersion, 'singer', $locale),
+                        'publisher' => $this->t($pad->recordedVersion, 'publisher', $locale),
+                        'vocalization' => $this->t($pad->recordedVersion, 'vocalization', $locale),
                         'recording_type' => $pad->recordedVersion->recording_type,
                     ] : null,
                 ];
             });
 
-        $creatorPayload = [
-            'id'    => $category->id,
-            'name'  => $t($category, 'value'),   // "Bramhanand swami" / "બ્રહ્માનંદ સ્વામી"
-            'type'  => $t($category, 'type'),    // "Creator" / "રચયિતા"
-        ];
-
         return Inertia::render('Admin/Categories/Creator/CreatorShowPads', [
-            'swami'  => $creatorPayload,   // keep key name "swami" for frontend
-            'pads'   => $pads,
+            'swami' => [
+                'id' => $category->id,
+                'name' => $this->t($category, 'value', $locale),
+                'type' => $this->t($category, 'type', $locale),
+            ],
+            'pads' => $pads,
             'locale' => $locale,
         ]);
     }
 
-    // Single delete
+    // ─── DESTROY ─────────────────────────────────────────────────────────────
+
     public function destroy($rolePrefix, Request $request, $id)
     {
-        // dd($request->all());
-        $creator = Category::findOrFail($id);   // or Creator model
+        $creator = Category::findOrFail($id);
+
+        if (!$this->isCreatorType($creator)) {
+            abort(404);
+        }
 
         $deleteRelatedPads = $request->boolean('delete_related_pads');
-        $locale = app()->getLocale();
 
         if ($deleteRelatedPads) {
-            // Get only pads linked to this creator
-            $padIds = $creator->pads()->pluck('pads.id'); // or ->pluck('pad_id')
-
-            // Delete those pads
+            $padIds = $creator->pads()->pluck('pads.id');
             if ($padIds->isNotEmpty()) {
-                \App\Models\Pad::whereIn('id', $padIds)->delete();
+                Pad::whereIn('id', $padIds)->delete();
             }
         }
+
         $creator->delete();
 
-        $message = $deleteRelatedPads
-            ? ($locale === 'gu'
-                ? 'રચયિતા અને તેના બધા પદો સફળતાપૂર્વક કાઢી નાખ્યા.'
-                : 'Creator and its related pads deleted successfully.')
-            : ($locale === 'gu'
-                ? 'રચયિતા સફળતાપૂર્વક કાઢી નાખ્યું.'
-                : 'Creator deleted successfully.');
-
         return redirect()
-            ->route('role.category.creatorlist', [
-                'rolePrefix' => $rolePrefix,
-            ])
-            ->with('success', $message);
+            ->route('role.category.creatorlist', ['rolePrefix' => $rolePrefix])
+            ->with('success', $deleteRelatedPads
+                ? 'creator_and_pads_deleted_success'
+                : 'creator_deleted_success');
     }
-
-
 
     public function bulkDestroy($rolePrefix, Request $request)
     {
-        // dd($request->all());
         $request->validate([
-            'ids'   => 'required|array',
-            'ids.*' => 'integer|exists:categories,id',  // adjust table
+            'ids' => 'required|array',
+            'ids.*' => 'integer|exists:categories,id',
         ]);
 
         $ids = $request->input('ids', []);
         $deletePads = $request->boolean('delete_related_pads');
-        $locale = app()->getLocale();
 
         if (empty($ids)) {
-            $message = $locale === 'gu'
-                ? 'કોઈ રચયિતા પસંદ કરેલ નથી.'
-                : 'No creators selected.';
-
-            return back()->with('error', $message);
+            return back()->with('error', 'select_at_least_one');
         }
 
         $creators = Category::whereIn('id', $ids)->get();
 
-        if ($deletePads) {
-            foreach ($creators as $creator) {
+        foreach ($creators as $creator) {
+            if (!$this->isCreatorType($creator)) {
+                continue;
+            }
+
+            if ($deletePads) {
                 $creator->pads()->delete();
             }
         }
 
         Category::whereIn('id', $ids)->delete();
 
-        $message = $deletePads
-            ? ($locale === 'gu'
-                ? 'રચયિતા અને તેના બધા પદો સફળતાપૂર્વક કાઢી નાખ્યા.'
-                : 'Creators and their related pads deleted successfully.')
-            : ($locale === 'gu'
-                ? 'રચયિતા સફળતાપૂર્વક કાઢી નાખ્યા.'
-                : 'Creators deleted successfully.');
-
-        return back()->with('success', $message);
+        return back()->with('success', $deletePads
+            ? 'creators_and_pads_deleted_success'
+            : 'creators_deleted_success');
     }
 }

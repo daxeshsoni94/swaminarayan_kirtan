@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { Form, Modal } from "react-bootstrap";
+import { usePage } from "@inertiajs/react";
+
 interface DeleteModalProps {
     show?: boolean;
     onDeleteClick?: (deleteRelatedPads: boolean) => void;
     onCloseClick?: () => void;
     recordId?: string;
-    showPadsOption?: boolean; // ← new
-    isGu?: boolean;
+    showPadsOption?: boolean;
 }
 
 const DeleteModal: React.FC<DeleteModalProps> = ({
@@ -15,9 +16,14 @@ const DeleteModal: React.FC<DeleteModalProps> = ({
     onCloseClick,
     recordId,
     showPadsOption = false,
-    isGu = false,
 }) => {
-    const [deleteRelatedPads, setDeleteRelatedPads] = useState(false);
+    const { translations } = usePage().props as any;
+
+    // Centralized translations
+    const t = translations || {};
+
+    const [deleteRelatedPads, setDeleteRelatedPads] =
+        useState(false);
 
     // Reset checkbox every time modal opens
     useEffect(() => {
@@ -25,78 +31,76 @@ const DeleteModal: React.FC<DeleteModalProps> = ({
             setDeleteRelatedPads(false);
         }
     }, [show]);
+
     return (
-        <Modal show={show} onHide={onCloseClick} centered={true}>
+        <Modal
+            show={show}
+            onHide={onCloseClick}
+            centered={true}
+        >
             <Modal.Body className="py-3 px-5">
                 <div className="mt-2 text-center">
                     <i className="ri-delete-bin-line display-5 text-danger"></i>
+
                     <div className="mt-4 pt-2 fs-15 mx-4 mx-sm-5">
-                        <h4>{isGu ? "શું તમે ખરેખર?" : "Are you sure?"}</h4>
+                        <h4>
+                            {t.are_you_sure}
+                        </h4>
+
                         <p className="text-muted mx-4 mb-0">
-                            {isGu
-                                ? `શું તમે આ રેકોર્ડ ${recordId ? recordId : ""} કાઢી નાખવા માંગો છો?`
-                                : `Are you sure you want to remove this record ${recordId ? recordId : ""}?`}
+                            {t.delete_record_confirmation}{" "}
+                            {recordId || ""}
                         </p>
                     </div>
                 </div>
-                {/* ★ Checkbox for related pads */}
+
+                {/* Related pads checkbox */}
                 {showPadsOption && (
                     <div className="mt-3 text-center">
                         <Form.Check
                             type="checkbox"
                             id="delete-related-pads"
                             label={
-                                isGu
-                                    ? "સંબંધિત બધા પદો પણ કાઢી નાખો"
-                                    : "Also delete all related pads"
+                                t.delete_related_pads
                             }
                             checked={deleteRelatedPads}
                             onChange={(e) =>
-                                setDeleteRelatedPads(e.target.checked)
+                                setDeleteRelatedPads(
+                                    e.target.checked
+                                )
                             }
                             className="d-inline-block"
                         />
                     </div>
                 )}
+
                 <div className="d-flex gap-2 justify-content-center mt-4 mb-2">
                     <button
                         type="button"
                         className="btn w-sm btn-light"
-                        //data-bs-dismiss="modal"
                         onClick={onCloseClick}
                     >
-                        {isGu ? "બંધ કરો" : "Close"}
+                        {t.close}
                     </button>
+
                     <button
                         type="button"
                         className="btn w-sm btn-danger"
                         id="delete-record"
                         onClick={() => {
-                            console.log("Yes Delete clicked!");
-                            console.log(
-                                "onDeleteClick exists?",
-                                typeof onDeleteClick,
-                            );
-                            console.log(
-                                "deleteRelatedPads =",
-                                deleteRelatedPads,
-                            );
-
                             if (onDeleteClick) {
-                                onDeleteClick(deleteRelatedPads);
-                            } else {
-                                alert(
-                                    "onDeleteClick is undefined! Prop is missing.",
+                                onDeleteClick(
+                                    deleteRelatedPads
                                 );
                             }
                         }}
                     >
-                        {isGu ? "હા, કાઢી નાખો!" : "Yes, Delete It!"}
+                        {t.yes_delete}
                     </button>
                 </div>
             </Modal.Body>
         </Modal>
-    ) as unknown as JSX.Element;
+    );
 };
 
 export default DeleteModal;

@@ -1,52 +1,59 @@
-import React, { useRef } from "react";
+import React, { useMemo, useRef } from "react";
+
 import { useForm, usePage } from "@inertiajs/react";
+
 import { Button, Card, Col, Form, Row } from "react-bootstrap";
 
-export default function UpdatePasswordForm({ className = "" }: any) {
-    const passwordInput = useRef<HTMLInputElement>(null);
-    const currentPasswordInput = useRef<HTMLInputElement>(null);
+interface PageProps {
+    locale?: string;
+    translations?: Record<string, any>;
+}
 
-    const { locale } = usePage().props as any;
+interface UpdatePasswordFormProps {
+    className?: string;
+}
 
-    /*
-    |--------------------------------------------------------------------------
-    | Translations
-    |--------------------------------------------------------------------------
-    */
+type TranslationFunction = (
+    key: string,
+    replacements?: Record<string, string | number>,
+) => string;
 
-    const labels = {
-        en: {
-            updatePassword: "Update Password",
-            description:
-                "Ensure your account is using a long, random password to stay secure.",
-            currentPassword: "Current Password",
-            newPassword: "New Password",
-            confirmPassword: "Confirm Password",
-            save: "Save",
-            saving: "Saving...",
-            updated: "Password updated successfully.",
-        },
+const createTranslator = (
+    translations: Record<string, any>,
+): TranslationFunction => {
+    return (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ): string => {
+        let text = translations[key] ?? key;
 
-        gu: {
-            updatePassword: "પાસવર્ડ અપડેટ કરો",
-            description:
-                "તમારું એકાઉન્ટ સુરક્ષિત રાખવા માટે લાંબો અને મજબૂત પાસવર્ડ રાખો.",
-            currentPassword: "વર્તમાન પાસવર્ડ",
-            newPassword: "નવો પાસવર્ડ",
-            confirmPassword: "પાસવર્ડની પુષ્ટિ કરો",
-            save: "સાચવો",
-            saving: "સાચવી રહ્યા છીએ...",
-            updated: "પાસવર્ડ સફળતાપૂર્વક અપડેટ થઈ ગયો છે.",
-        },
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = String(text).replace(
+                new RegExp(`:${name}`, "g"),
+                String(value),
+            );
+        });
+
+        return text;
     };
+};
 
-    const t = labels[locale === "gu" ? "gu" : "en"];
+export default function UpdatePasswordForm({
+    className = "",
+}: UpdatePasswordFormProps) {
+    const passwordInput =
+        useRef<HTMLInputElement>(null);
 
-    /*
-    |--------------------------------------------------------------------------
-    | Form
-    |--------------------------------------------------------------------------
-    */
+    const currentPasswordInput =
+        useRef<HTMLInputElement>(null);
+
+    const { translations = {} } =
+        usePage<PageProps>().props;
+
+    const tr = useMemo(
+        () => createTranslator(translations),
+        [translations],
+    );
 
     const {
         data,
@@ -62,13 +69,12 @@ export default function UpdatePasswordForm({ className = "" }: any) {
         password_confirmation: "",
     });
 
-    /*
-    |--------------------------------------------------------------------------
-    | Update Password
-    |--------------------------------------------------------------------------
-    */
-
-    const updatePassword = (e: React.FormEvent) => {
+    /**
+     * Update password
+     */
+    const updatePassword = (
+        e: React.FormEvent<HTMLFormElement>,
+    ) => {
         e.preventDefault();
 
         put(route("password.update"), {
@@ -78,14 +84,17 @@ export default function UpdatePasswordForm({ className = "" }: any) {
                 reset();
             },
 
-            onError: (errors) => {
-                if (errors.password) {
-                    reset("password", "password_confirmation");
+            onError: (formErrors) => {
+                if (formErrors.password) {
+                    reset(
+                        "password",
+                        "password_confirmation",
+                    );
 
                     passwordInput.current?.focus();
                 }
 
-                if (errors.current_password) {
+                if (formErrors.current_password) {
                     reset("current_password");
 
                     currentPasswordInput.current?.focus();
@@ -96,52 +105,69 @@ export default function UpdatePasswordForm({ className = "" }: any) {
 
     return (
         <React.Fragment>
-            <Col>
-                {/* Title */}
+            <Col className={className}>
                 <h4 className="mb-3">
-                    {t.updatePassword}
+                    {tr("update_password")}
                 </h4>
 
                 <Card>
                     <Card.Body>
-                        {/* Description */}
                         <p className="text-muted mb-4">
-                            {t.description}
+                            {tr(
+                                "update_password_description",
+                            )}
                         </p>
 
                         <Form onSubmit={updatePassword}>
                             <Row>
                                 {/* Current Password */}
-                                <Col lg={6} className="mb-3">
+                                <Col
+                                    lg={6}
+                                    className="mb-3"
+                                >
                                     <Form.Label htmlFor="current_password">
-                                        {t.currentPassword}
+                                        {tr(
+                                            "current_password",
+                                        )}
                                     </Form.Label>
 
                                     <Form.Control
                                         id="current_password"
-                                        ref={currentPasswordInput}
-                                        value={data.current_password}
+                                        ref={
+                                            currentPasswordInput
+                                        }
+                                        value={
+                                            data.current_password
+                                        }
                                         onChange={(e) =>
                                             setData(
                                                 "current_password",
-                                                e.target.value
+                                                e.target.value,
                                             )
                                         }
                                         type="password"
                                         autoComplete="current-password"
+                                        isInvalid={
+                                            !!errors.current_password
+                                        }
                                     />
 
                                     {errors.current_password && (
                                         <div className="text-danger mt-1">
-                                            {errors.current_password}
+                                            {
+                                                errors.current_password
+                                            }
                                         </div>
                                     )}
                                 </Col>
 
                                 {/* New Password */}
-                                <Col lg={6} className="mb-3">
+                                <Col
+                                    lg={6}
+                                    className="mb-3"
+                                >
                                     <Form.Label htmlFor="password">
-                                        {t.newPassword}
+                                        {tr("new_password")}
                                     </Form.Label>
 
                                     <Form.Control
@@ -151,11 +177,14 @@ export default function UpdatePasswordForm({ className = "" }: any) {
                                         onChange={(e) =>
                                             setData(
                                                 "password",
-                                                e.target.value
+                                                e.target.value,
                                             )
                                         }
                                         type="password"
                                         autoComplete="new-password"
+                                        isInvalid={
+                                            !!errors.password
+                                        }
                                     />
 
                                     {errors.password && (
@@ -166,9 +195,14 @@ export default function UpdatePasswordForm({ className = "" }: any) {
                                 </Col>
 
                                 {/* Confirm Password */}
-                                <Col lg={6} className="mb-3">
+                                <Col
+                                    lg={6}
+                                    className="mb-3"
+                                >
                                     <Form.Label htmlFor="password_confirmation">
-                                        {t.confirmPassword}
+                                        {tr(
+                                            "confirm_password",
+                                        )}
                                     </Form.Label>
 
                                     <Form.Control
@@ -179,11 +213,14 @@ export default function UpdatePasswordForm({ className = "" }: any) {
                                         onChange={(e) =>
                                             setData(
                                                 "password_confirmation",
-                                                e.target.value
+                                                e.target.value,
                                             )
                                         }
                                         type="password"
                                         autoComplete="new-password"
+                                        isInvalid={
+                                            !!errors.password_confirmation
+                                        }
                                     />
 
                                     {errors.password_confirmation && (
@@ -210,16 +247,18 @@ export default function UpdatePasswordForm({ className = "" }: any) {
                                                 role="status"
                                             />
 
-                                            {t.saving}
+                                            {tr("saving")}
                                         </>
                                     ) : (
-                                        t.save
+                                        tr("save")
                                     )}
                                 </Button>
 
                                 {recentlySuccessful && (
                                     <span className="text-success">
-                                        {t.updated}
+                                        {tr(
+                                            "password_updated_successfully",
+                                        )}
                                     </span>
                                 )}
                             </div>

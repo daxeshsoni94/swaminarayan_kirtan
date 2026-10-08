@@ -1,133 +1,175 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo } from "react";
+
 import { Card, Col, Container, Form, Row } from "react-bootstrap";
+
 import BreadCrumb from "../../../../Components/Common/BreadCrumb";
+
 import { Head, Link, useForm, usePage } from "@inertiajs/react";
+
 import Layout from "../../../../Layouts";
+
 import { toast } from "react-toastify";
 
-const PlaceForm = ({ place = null }) => {
-    const page = usePage().props;
+/**
+ * Get a translated value from a multilingual JSON field.
+ */
+const tValue = (value: any, locale: string): string => {
+    if (value == null) return "";
 
-    const locale = page.locale === "gu" ? "gu" : "en";
-    const isGu = locale === "gu";
+    if (typeof value === "string") {
+        return value;
+    }
+
+    if (typeof value === "object") {
+        return value[locale] ?? Object.values(value)[0] ?? "";
+    }
+
+    return String(value);
+};
+
+/**
+ * Centralized translation helper.
+ */
+const createTranslator = (translations: Record<string, any>) => {
+    return (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ): string => {
+        let text = translations[key] ?? key;
+
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(`:${name}`, String(value));
+        });
+
+        return text;
+    };
+};
+
+interface PlaceFormProps {
+    place?: any;
+}
+
+const PlaceForm = ({ place = null }: PlaceFormProps) => {
+    const page = usePage().props as any;
+
+    const { auth, translations = {}, languages = [], locale } = page;
+
+    const currentLocale = locale || "gu";
+
     const isEdit = !!place?.id;
-    const { auth } = usePage().props as any;
+
+    /**
+     * Centralized translator.
+     */
+    const tr = useMemo(() => createTranslator(translations), [translations]);
+    const translateError = (error?: string) => {
+        if (!error) return "";
+        return tr(error);
+    };
+
+    /**
+     * Dynamic role prefix.
+     */
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
 
+    /**
+     * Create form values dynamically from languages table.
+     *
+     * No hardcoded en / gu here.
+     */
+    const initialValue = useMemo(() => {
+        return languages.reduce(
+            (values: Record<string, string>, language: any) => {
+                values[language.code] = place?.value?.[language.code] ?? "";
+
+                return values;
+            },
+            {},
+        );
+    }, [languages, place]);
+
     const { data, setData, post, put, processing, errors } = useForm({
-        value: {
-            en: place?.value?.en ?? "",
-            gu: place?.value?.gu ?? "",
-        },
-        locale,
+        value: initialValue,
+        locale: currentLocale,
     });
 
-    // Keep form locale in sync with header toggle
+    /**
+     * Keep form locale synchronized with header language.
+     */
     useEffect(() => {
-        setData("locale", locale);
-    }, [locale]);
+        setData("locale", currentLocale);
+    }, [currentLocale]);
 
-    const setValue = (text) => {
+    /**
+     * Update current language value.
+     */
+    const setValue = (text: string) => {
         setData("value", {
             ...data.value,
-            [locale]: text,
+            [currentLocale]: text,
         });
     };
 
-    const handleSubmit = (e) => {
+    /**
+     * Submit form.
+     */
+    const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
         if (isEdit) {
             put(
                 route("role.place.update", {
-                    rolePrefix: rolePrefix,
+                    rolePrefix,
                     place: place.id,
                 }),
                 {
-                    onSuccess: () =>
-                        toast.success(
-                            isGu
-                                ? "સ્થળ સફળતાપૂર્વક અપડેટ થઈ!"
-                                : "Place updated successfully!",
-                        ),
-
-                    onError: () =>
-                        toast.error(
-                            isGu
-                                ? "કૃપા કરીને ભૂલો સુધારો."
-                                : "Please fix the errors.",
-                        ),
+                    onSuccess: () => {
+                        // toast.success(
+                        //     tr("place_updated_success"),
+                        // );
+                    },
+                    onError: () => {
+                        // toast.error(
+                        //     tr("please_fix_errors"),
+                        // );
+                    },
                 },
             );
         } else {
             post(
                 route("role.category.placestore", {
-                    rolePrefix: rolePrefix,
+                    rolePrefix,
                 }),
                 {
-                    onSuccess: () =>
-                        toast.success(
-                            isGu
-                                ? "સ્થળ સફળતાપૂર્વક ઉમેરવામાં આવી!"
-                                : "Place added successfully!",
-                        ),
-
-                    onError: () =>
-                        toast.error(
-                            isGu
-                                ? "કૃપા કરીને ભૂલો સુધારો."
-                                : "Please fix the errors.",
-                        ),
+                    onSuccess: () => {
+                        // toast.success(
+                        //     tr("place_added_success"),
+                        // );
+                    },
+                    onError: () => {
+                        // toast.error(
+                        //     tr("please_fix_errors"),
+                        // );
+                    },
                 },
             );
         }
     };
 
+    /**
+     * Dynamic page title.
+     */
+    const pageTitle = isEdit ? tr("edit_place") : tr("add_place");
+
     return (
         <React.Fragment>
-            <Head
-                title={
-                    isEdit
-                        ? isGu
-                            ? "સ્થળ સંપાદિત કરો"
-                            : "Edit Place"
-                        : isGu
-                          ? "સ્થળ ઉમેરો"
-                          : "Add Place"
-                }
-            />
+            <Head title={pageTitle} />
 
             <div className="page-content">
                 <Container fluid>
-                    <BreadCrumb
-                        title={
-                            isEdit
-                                ? isGu
-                                    ? "સ્થળ સંપાદિત કરો"
-                                    : "Edit Place"
-                                : isGu
-                                  ? "સ્થળ ઉમેરો"
-                                  : "Add Place"
-                        }
-                        pageTitle={isGu ? "સ્થળ" : "Places"}
-                    />
-
-                    {/* Locale indicator */}
-                    {/* <div className="mb-3">
-                        <span className="badge bg-primary">
-                            {isGu
-                                ? "ફોર્મ: ગુજરાતી (GU)"
-                                : "Form: English (EN)"}
-                        </span>
-
-                        <small className="text-muted ms-2">
-                            {isGu
-                                ? "બીજી ભાષામાં ફેરફાર કરવા માટે હેડર ટૉગલ બદલો."
-                                : "Switch language from the header toggle to edit the other translation."}
-                        </small>
-                    </div> */}
+                    <BreadCrumb title={pageTitle} pageTitle={tr("places")} />
 
                     <Row>
                         <Col lg={12}>
@@ -135,54 +177,35 @@ const PlaceForm = ({ place = null }) => {
                                 <Card.Header>
                                     <h5 className="card-title mb-0">
                                         {isEdit
-                                            ? isGu
-                                                ? "સ્થળ વિગતો"
-                                                : "Place Details"
-                                            : isGu
-                                              ? "નવું સ્થળ"
-                                              : "New Place"}
-
-                                        {/* {isEdit && (
-                                            <span
-                                                className="badge bg-secondary ms-2"
-                                                style={{
-                                                    fontSize: "10px",
-                                                }}
-                                            >
-                                                ID #{place.id}
-                                            </span>
-                                        )} */}
+                                            ? tr("place_details")
+                                            : tr("new_place")}
                                     </h5>
                                 </Card.Header>
 
                                 <Card.Body>
                                     <Form onSubmit={handleSubmit}>
-                                        {/* Type is fixed */}
+                                        {/* Type */}
                                         <Form.Group className="mb-3">
                                             <Form.Label>
-                                                {isGu ? "પ્રકાર" : "Type"}
+                                                {tr("type")}
                                             </Form.Label>
 
                                             <Form.Control
                                                 type="text"
-                                                value={isGu ? "સ્થળ" : "Place"}
+                                                value={tr("place")}
                                                 disabled
                                                 readOnly
                                             />
 
                                             <Form.Text className="text-muted">
-                                                {isGu
-                                                    ? "પ્રકાર હંમેશા સ્થળ રહેશે."
-                                                    : "Type is always set to Place."}
+                                                {tr("place_type_help")}
                                             </Form.Text>
                                         </Form.Group>
 
-                                        {/* Place value - current locale */}
+                                        {/* Place value */}
                                         <Form.Group className="mb-3">
                                             <Form.Label htmlFor="place-value">
-                                                {isGu
-                                                    ? "સ્થળનું નામ"
-                                                    : "Place Name"}{" "}
+                                                {tr("place_name")}{" "}
                                                 <span className="text-danger">
                                                     *
                                                 </span>
@@ -191,34 +214,37 @@ const PlaceForm = ({ place = null }) => {
                                             <Form.Control
                                                 type="text"
                                                 id="place-value"
-                                                placeholder={
-                                                    isGu
-                                                        ? "ઉદા. ગઢડા"
-                                                        : "e.g. Gadhada"
+                                                placeholder={tr(
+                                                    "place_name_placeholder",
+                                                )}
+                                                value={
+                                                    data.value?.[
+                                                        currentLocale
+                                                    ] ?? ""
                                                 }
-                                                value={data.value[locale] ?? ""}
                                                 onChange={(e) =>
                                                     setValue(e.target.value)
                                                 }
                                                 isInvalid={
                                                     !!errors[
-                                                        `value.${locale}`
+                                                        `value.${currentLocale}`
                                                     ] || !!errors.value
                                                 }
                                             />
 
                                             <Form.Control.Feedback type="invalid">
-                                                {errors[`value.${locale}`] ||
-                                                    errors.value}
+                                                {translateError(
+                                                    errors?.[
+                                                        `value.${currentLocale}`
+                                                    ] || errors?.value,
+                                                )}
                                             </Form.Control.Feedback>
                                         </Form.Group>
 
-                                        {/* Both languages reference */}
+                                        {/* All languages reference */}
                                         <div className="mb-3 p-2 rounded border bg-light">
                                             <small className="text-muted d-block mb-1">
-                                                {isGu
-                                                    ? "બંને ભાષાઓ (સંદર્ભ)"
-                                                    : "Both languages (reference)"}
+                                                {tr("both_languages_reference")}
                                             </small>
 
                                             <div
@@ -227,15 +253,21 @@ const PlaceForm = ({ place = null }) => {
                                                     fontSize: "13px",
                                                 }}
                                             >
-                                                <span>
-                                                    <strong>EN:</strong>{" "}
-                                                    {data.value.en || "—"}
-                                                </span>
-
-                                                <span>
-                                                    <strong>GU:</strong>{" "}
-                                                    {data.value.gu || "—"}
-                                                </span>
+                                                {languages.map(
+                                                    (language: any) => (
+                                                        <span
+                                                            key={language.code}
+                                                        >
+                                                            <strong>
+                                                                {language.code.toUpperCase()}
+                                                                :
+                                                            </strong>{" "}
+                                                            {data.value?.[
+                                                                language.code
+                                                            ] || "—"}
+                                                        </span>
+                                                    ),
+                                                )}
                                             </div>
                                         </div>
 
@@ -245,12 +277,12 @@ const PlaceForm = ({ place = null }) => {
                                                 href={route(
                                                     "role.category.placelist",
                                                     {
-                                                        rolePrefix: rolePrefix,
+                                                        rolePrefix,
                                                     },
                                                 )}
                                                 className="btn btn-secondary me-2"
                                             >
-                                                {isGu ? "રદ કરો" : "Cancel"}
+                                                {tr("cancel")}
                                             </Link>
 
                                             <button
@@ -259,16 +291,10 @@ const PlaceForm = ({ place = null }) => {
                                                 disabled={processing}
                                             >
                                                 {processing
-                                                    ? isGu
-                                                        ? "સાચવી રહ્યા છીએ..."
-                                                        : "Saving..."
+                                                    ? tr("saving")
                                                     : isEdit
-                                                      ? isGu
-                                                          ? "અપડેટ કરો"
-                                                          : "Update"
-                                                      : isGu
-                                                        ? "સાચવો"
-                                                        : "Save"}
+                                                      ? tr("update")
+                                                      : tr("save")}
                                             </button>
                                         </div>
                                     </Form>
@@ -282,6 +308,6 @@ const PlaceForm = ({ place = null }) => {
     );
 };
 
-PlaceForm.layout = (page) => <Layout children={page} />;
+PlaceForm.layout = (page: React.ReactNode) => <Layout>{page}</Layout>;
 
 export default PlaceForm;

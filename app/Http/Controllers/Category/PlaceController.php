@@ -1,218 +1,419 @@
 <?php
 
 namespace App\Http\Controllers\Category;
-
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Models\Language;
+use App\Models\Pad;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Lang;
 use Inertia\Inertia;
 
 class PlaceController extends Controller
 {
-    // public function placeList(Request $request)
-    // {
-    //     $locale = app()->getLocale();
-
-    //     if (!in_array($locale, ['en', 'gu'], true)) {
-    //         $locale = 'en';
-    //     }
-    //     $search = trim($request->input('search', ''));
-
-    //     $places = Category::query()
-    //         ->where('type->en', 'Place')
-    //         ->when($search, function ($query) use ($search) {
-    //             $query->where(function ($q) use ($search) {
-    //                 $q->where('value->en', 'like', "%{$search}%")
-    //                     ->orWhere('value->gu', 'like', "%{$search}%");
-    //             });
-    //         })
-    //         ->withCount('pads')
-    //         ->latest()
-    //         ->paginate(10)
-    //         ->withQueryString();
-
-    //     return Inertia::render('Admin/Categories/Place/PlaceList', [
-    //         'places' => $places,
-    //         'filters' => [
-    //             'search' => $search,
-    //         ],
-    //         'locale' => app()->getLocale(),
-    //     ]);
-    // }
-
-    public function placeList(Request $request)
+    /**
+     * Get all supported language codes from database.
+     */
+    private function supportedLocales(): array
     {
-        $locale = app()->getLocale();
+        $codes = Language::query()
+            ->whereNotNull('code')
+            ->pluck('code')
+            ->filter()
+            ->map(fn ($code) => trim((string) $code))
+            ->filter()
+            ->values()
+            ->all();
 
-        if (!in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
+        return !empty($codes) ? $codes : ['en'];
+    }
+
+    /**
+     * Resolve current locale against available languages.
+     */
+    private function resolveLocale(?string $locale = null): string
+    {
+        $locale = $locale ?: app()->getLocale();
+        $locales = $this->supportedLocales();
+
+        return in_array($locale, $locales, true)
+            ? $locale
+            : ($locales[0] ?? 'en');
+    }
+
+    /**
+     * Get translated value from a translatable model.
+     *
+     * Current locale -> first available language -> empty string.
+     */
+    private function t($model, string $field, ?string $locale = null): string
+    {
+        if (!$model) {
+            return '';
         }
 
-        $search = trim($request->input('search', ''));
-        $letter = trim($request->get('letter', ''));
+        $locale = $this->resolveLocale($locale);
 
+        $value = $model->getTranslation($field, $locale, false);
+
+        if (is_string($value) && trim($value) !== '') {
+            return $value;
+        }
+
+        foreach ($this->supportedLocales() as $code) {
+            $fallback = $model->getTranslation($field, $code, false);
+
+            if (is_string($fallback) && trim($fallback) !== '') {
+                return $fallback;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Get the translated "Place" type label.
+     *
+     * This first tries the application's translation files.
+     * If the translation key is not available, sensible fallbacks
+     * are used for English/Gujarati.
+     */
+    private function placeTypeTranslation(string $locale): string
+    {
+        $locale = $this->resolveLocale($locale);
+
+        $translated = Lang::get('place', [], $locale);
+
+        if (
+            is_string($translated) &&
+            $translated !== 'place' &&
+            trim($translated) !== ''
+        ) {
+            return $translated;
+        }
+
+        return match ($locale) {
+            'gu' => 'સ્થળ',
+            default => 'Place',
+        };
+    }
+
+    /**
+     * Check whether a category is a Place category.
+     *
+     * The check is performed against all configured languages.
+     */
+    private function isPlaceType(Category $category): bool
+    {
+        foreach ($this->supportedLocales() as $locale) {
+            $storedType = $category->getTranslation('type', $locale, false);
+
+            if (!is_string($storedType) || trim($storedType) === '') {
+                continue;
+            }
+
+            $storedType = trim($storedType);
+
+            $expectedType = trim($this->placeTypeTranslation($locale));
+
+            if (
+                mb_strtolower($storedType) === mb_strtolower($expectedType)
+            ) {
+                return true;
+            }
+
+            /*
+             * Also compare against the English canonical type.
+             * This keeps existing records working if their type is
+             * stored as "Place".
+             */
+            if (
+                mb_strtolower($storedType) === 'place'
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Build the Place type JSON for all configured languages.
+     */
+    private function placeTypeTranslations(): array
+    {
+        $type = [];
+
+        foreach ($this->supportedLocales() as $locale) {
+            $type[$locale] = $this->placeTypeTranslation($locale);
+        }
+
+        return $type;
+    }
+
+    /**
+     * Get all language values from a request.
+     */
+    private function getLanguageValues(Request $request, string $field = 'value'): array
+    {
+        $values = [];
+
+        foreach ($this->supportedLocales() as $locale) {
+            $values[$locale] = trim(
+                (string) $request->input("{$field}.{$locale}", '')
+            );
+        }
+
+        return $values;
+    }
+
+    /**
+     * Check whether at least one translated value exists.
+     */
+    private function hasAnyValue(array $values): bool
+    {
+        foreach ($values as $value) {
+            if (trim((string) $value) !== '') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Validate all dynamic language fields.
+     */
+    private function validateLanguageValues(Request $request): void
+    {
+        $rules = [];
+
+        foreach ($this->supportedLocales() as $locale) {
+            $rules["value.{$locale}"] = [
+                'nullable',
+                'string',
+                'max:255',
+            ];
+        }
+
+        $request->validate($rules);
+    }
+
+    /**
+     * Return the validation error key according to current locale.
+     */
+    private function requiredErrorKey(Request $request): string
+    {
+        $locale = $this->resolveLocale(
+            $request->input('locale', app()->getLocale())
+        );
+
+        return "value.{$locale}";
+    }
+
+    /**
+     * PLACE LIST
+     */
+    public function placeList(Request $request)
+    {
+        $locale = $this->resolveLocale(
+            $request->input('locale', app()->getLocale())
+        );
+
+        $search = trim($request->input('search', ''));
+        $letter = trim($request->input('letter', ''));
+
+        /*
+         * Only Place categories.
+         */
         $query = Category::query()
             ->where(function ($q) {
-                // Only Place categories
-                $q->whereRaw(
-                    "LOWER(JSON_UNQUOTE(JSON_EXTRACT(type, '$.en'))) = ?",
-                    ['place']
-                )
-                    ->orWhereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(type, '$.gu')) LIKE ?",
-                        ['%સ્થળ%']
+                foreach ($this->supportedLocales() as $locale) {
+                    $placeType = $this->placeTypeTranslation($locale);
+
+                    $q->orWhereRaw(
+                        "LOWER(JSON_UNQUOTE(JSON_EXTRACT(type, ?))) = ?",
+                        [
+                            '$.' . $locale,
+                            mb_strtolower($placeType),
+                        ]
                     );
+
+                    /*
+                     * Existing records may contain English "Place".
+                     */
+                    if ($locale !== 'en') {
+                        $q->orWhereRaw(
+                            "LOWER(JSON_UNQUOTE(JSON_EXTRACT(type, ?))) = ?",
+                            [
+                                '$.' . $locale,
+                                'place',
+                            ]
+                        );
+                    }
+                }
             })
             ->withCount('pads');
 
+        /*
+         * Alphabet / letter filter.
+         *
+         * It uses the currently selected language.
+         */
         if ($letter !== '') {
             $query->where(function ($q) use ($letter, $locale) {
+                $path = '$.' . $locale;
 
-                if ($locale === 'gu') {
-                    $q->whereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(value, '$.gu')) LIKE ?",
-                        [$letter . '%']
-                    );
-                } else {
-                    $q->whereRaw(
-                        "LOWER(JSON_UNQUOTE(JSON_EXTRACT(value, '$.en'))) LIKE ?",
-                        [strtolower($letter) . '%']
-                    );
-                }
+                $q->whereRaw(
+                    "JSON_UNQUOTE(JSON_EXTRACT(value, ?)) LIKE ?",
+                    [
+                        $path,
+                        $letter . '%',
+                    ]
+                );
             });
         }
 
+        /*
+         * Global search.
+         *
+         * Search through:
+         * - ID
+         * - Place value in all languages
+         * - Place type in all languages
+         * - Related pad title/value
+         * - Pad status/date
+         * - Pad categories
+         * - Recorded version
+         */
         if ($search !== '') {
             $searchLike = '%' . $search . '%';
 
             $query->where(function ($q) use ($search, $searchLike) {
+                /*
+                 * Category ID
+                 */
                 if (is_numeric($search)) {
-                    $q->orWhere('id', $search);   // exact ID match
-                    $q->orWhere('id', 'like', $searchLike);
+                    $q->orWhere('id', $search)
+                        ->orWhere('id', 'like', $searchLike);
                 }
 
                 /*
-             * Place value
-             */
-                $q->whereRaw(
-                    "JSON_UNQUOTE(JSON_EXTRACT(value, '$.en')) LIKE ?",
-                    [$searchLike]
-                )
-                    ->orWhereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(value, '$.gu')) LIKE ?",
-                        [$searchLike]
-                    )
-
-                    /*
-             * Place type
-             */
-                    ->orWhereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(type, '$.en')) LIKE ?",
-                        [$searchLike]
-                    )
-                    ->orWhereRaw(
-                        "JSON_UNQUOTE(JSON_EXTRACT(type, '$.gu')) LIKE ?",
-                        [$searchLike]
-                    )
-
-                    /*
-             * Related Pads
-             */
-                    ->orWhereHas('pads', function ($padQuery) use ($searchLike) {
-
-                        /*
-                 * Pad title
+                 * Place value + type in every language.
                  */
-                        $padQuery
-                            ->whereRaw(
-                                "JSON_UNQUOTE(JSON_EXTRACT(title, '$.en')) LIKE ?",
-                                [$searchLike]
-                            )
-                            ->orWhereRaw(
-                                "JSON_UNQUOTE(JSON_EXTRACT(title, '$.gu')) LIKE ?",
-                                [$searchLike]
-                            )
+                foreach ($this->supportedLocales() as $locale) {
+                    $valuePath = '$.' . $locale;
+                    $typePath = '$.' . $locale;
 
-                            /*
-                     * Pad lyrics / value
+                    $q->orWhereRaw(
+                        "JSON_UNQUOTE(JSON_EXTRACT(value, ?)) LIKE ?",
+                        [$valuePath, $searchLike]
+                    );
+
+                    $q->orWhereRaw(
+                        "JSON_UNQUOTE(JSON_EXTRACT(type, ?)) LIKE ?",
+                        [$typePath, $searchLike]
+                    );
+                }
+
+                /*
+                 * Related Pads
+                 */
+                $q->orWhereHas('pads', function ($padQuery) use ($searchLike) {
+
+                    /*
+                     * Pad title + value in all languages.
                      */
-                            ->orWhereRaw(
-                                "JSON_UNQUOTE(JSON_EXTRACT(value, '$.en')) LIKE ?",
-                                [$searchLike]
-                            )
-                            ->orWhereRaw(
-                                "JSON_UNQUOTE(JSON_EXTRACT(value, '$.gu')) LIKE ?",
-                                [$searchLike]
-                            )
+                    $padQuery->where(function ($translatedPadQuery) use ($searchLike) {
 
-                            /*
-                     * Pad status
-                     */
-                            ->orWhere('status', 'LIKE', $searchLike)
+                        foreach ($this->supportedLocales() as $locale) {
+                            $titlePath = '$.' . $locale;
+                            $valuePath = '$.' . $locale;
 
-                            /*
-                     * Establish date
-                     */
-                            ->orWhere('establish_date', 'LIKE', $searchLike)
-
-                            /*
-                     * Pad Categories
-                     */
-                            ->orWhereHas('categories', function ($categoryQuery) use ($searchLike) {
-                                $categoryQuery
-                                    ->whereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(type, '$.en')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(type, '$.gu')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(value, '$.en')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(value, '$.gu')) LIKE ?",
-                                        [$searchLike]
-                                    );
-                            })
-
-                            /*
-                     * Recorded Version
-                     */
-                            ->orWhereHas('recordedVersion', function ($recordingQuery) use ($searchLike) {
-
-                                $recordingQuery
-                                    ->whereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(singer, '$.en')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(singer, '$.gu')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(publisher, '$.en')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(publisher, '$.gu')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(vocalization, '$.en')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhereRaw(
-                                        "JSON_UNQUOTE(JSON_EXTRACT(vocalization, '$.gu')) LIKE ?",
-                                        [$searchLike]
-                                    )
-                                    ->orWhere('media_type', 'LIKE', $searchLike)
-                                    ->orWhere('recording_type', 'LIKE', $searchLike)
-                                    ->orWhere('file_url', 'LIKE', $searchLike);
-                            });
+                            $translatedPadQuery
+                                ->orWhereRaw(
+                                    "JSON_UNQUOTE(JSON_EXTRACT(title, ?)) LIKE ?",
+                                    [$titlePath, $searchLike]
+                                )
+                                ->orWhereRaw(
+                                    "JSON_UNQUOTE(JSON_EXTRACT(value, ?)) LIKE ?",
+                                    [$valuePath, $searchLike]
+                                );
+                        }
                     });
+
+                    /*
+                     * Pad status / date
+                     */
+                    $padQuery
+                        ->orWhere('status', 'LIKE', $searchLike)
+                        ->orWhere('establish_date', 'LIKE', $searchLike);
+
+                    /*
+                     * Pad categories.
+                     */
+                    $padQuery->orWhereHas(
+                        'categories',
+                        function ($categoryQuery) use ($searchLike) {
+
+                            $categoryQuery->where(function ($translatedCategoryQuery) use ($searchLike) {
+
+                                foreach ($this->supportedLocales() as $locale) {
+                                    $typePath = '$.' . $locale;
+                                    $valuePath = '$.' . $locale;
+
+                                    $translatedCategoryQuery
+                                        ->orWhereRaw(
+                                            "JSON_UNQUOTE(JSON_EXTRACT(type, ?)) LIKE ?",
+                                            [$typePath, $searchLike]
+                                        )
+                                        ->orWhereRaw(
+                                            "JSON_UNQUOTE(JSON_EXTRACT(value, ?)) LIKE ?",
+                                            [$valuePath, $searchLike]
+                                        );
+                                }
+                            });
+                        }
+                    );
+
+                    /*
+                     * Recorded version.
+                     */
+                    $padQuery->orWhereHas(
+                        'recordedVersion',
+                        function ($recordingQuery) use ($searchLike) {
+
+                            $recordingQuery->where(function ($translatedRecordingQuery) use ($searchLike) {
+
+                                foreach ($this->supportedLocales() as $locale) {
+                                    $singerPath = '$.' . $locale;
+                                    $publisherPath = '$.' . $locale;
+                                    $vocalizationPath = '$.' . $locale;
+
+                                    $translatedRecordingQuery
+                                        ->orWhereRaw(
+                                            "JSON_UNQUOTE(JSON_EXTRACT(singer, ?)) LIKE ?",
+                                            [$singerPath, $searchLike]
+                                        )
+                                        ->orWhereRaw(
+                                            "JSON_UNQUOTE(JSON_EXTRACT(publisher, ?)) LIKE ?",
+                                            [$publisherPath, $searchLike]
+                                        )
+                                        ->orWhereRaw(
+                                            "JSON_UNQUOTE(JSON_EXTRACT(vocalization, ?)) LIKE ?",
+                                            [$vocalizationPath, $searchLike]
+                                        );
+                                }
+                            });
+
+                            $recordingQuery
+                                ->orWhere('media_type', 'LIKE', $searchLike)
+                                ->orWhere('recording_type', 'LIKE', $searchLike)
+                                ->orWhere('file_url', 'LIKE', $searchLike);
+                        }
+                    );
+                });
             });
         }
 
@@ -223,48 +424,68 @@ class PlaceController extends Controller
 
         return Inertia::render('Admin/Categories/Place/PlaceList', [
             'places' => $places,
+
             'filters' => [
                 'search' => $search,
                 'letter' => $letter,
             ],
+
             'locale' => $locale,
+
+            'languages' => Language::query()
+                ->orderBy('id')
+                ->get([
+                    'id',
+                    'code',
+                    'name',
+                ]),
         ]);
     }
+
+    /**
+     * PLACE FORM
+     */
     public function placeForm()
     {
+        $locale = $this->resolveLocale();
+
         return Inertia::render('Admin/Categories/Place/PlaceForm', [
-            'locale' => app()->getLocale(),
+            'locale' => $locale,
+
+            'languages' => Language::query()
+                ->orderBy('id')
+                ->get([
+                    'id',
+                    'code',
+                    'name',
+                ]),
         ]);
     }
 
+    /**
+     * PLACE STORE
+     */
     public function placeStore($rolePrefix, Request $request)
     {
-        // dd($request->all());
-        $request->validate([
-            'value.en' => ['nullable', 'string', 'max:255'],
-            'value.gu' => ['nullable', 'string', 'max:255'],
-        ]);
+        $this->validateLanguageValues($request);
 
-        $value = [
-            'en' => $request->input('value.en', ''),
-            'gu' => $request->input('value.gu', ''),
-        ];
+        $values = $this->getLanguageValues($request);
 
-        // At least one language is required
-        if (empty(trim($value['en'])) && empty(trim($value['gu']))) {
+        /*
+         * At least one language is required.
+         */
+        if (!$this->hasAnyValue($values)) {
             return back()
                 ->withErrors([
-                    'value.en' => 'Place name is required.',
+                    $this->requiredErrorKey($request) =>
+                        'place_name_required',
                 ])
                 ->withInput();
         }
 
         Category::create([
-            'type' => [
-                'en' => 'Place',
-                'gu' => 'પ્રસંગ',
-            ],
-            'value' => $value,
+            'type' => $this->placeTypeTranslations(),
+            'value' => $values,
             'created_by' => auth()->id(),
         ]);
 
@@ -272,106 +493,118 @@ class PlaceController extends Controller
             ->route('role.category.placelist', [
                 'rolePrefix' => $rolePrefix,
             ])
-            ->with('success', 'Place created successfully.');
+            ->with('success', 'place_created_success');
     }
 
-
-
-    public function placeEdit($rolePrefix,Category $place)
+    /**
+     * PLACE EDIT
+     */
+    public function placeEdit($rolePrefix, Category $place)
     {
-        // dd($place);
-        $typeEn = $place->getTranslation('type', 'en', false);
-        if ($typeEn !== 'Place') {
+        if (!$this->isPlaceType($place)) {
             abort(404);
+        }
+
+        $value = [];
+
+        foreach ($this->supportedLocales() as $locale) {
+            $value[$locale] =
+                $place->getTranslation('value', $locale, false) ?: '';
         }
 
         return Inertia::render('Admin/Categories/Place/PlaceForm', [
             'place' => [
-                'id'    => $place->id,
-                'value' => [
-                    'en' => $place->getTranslation('value', 'en', false) ?: '',
-                    'gu' => $place->getTranslation('value', 'gu', false) ?: '',
-                ],
+                'id' => $place->id,
+                'value' => $value,
             ],
+
+            'locale' => $this->resolveLocale(),
+
+            'languages' => Language::query()
+                ->orderBy('id')
+                ->get([
+                    'id',
+                    'code',
+                    'name',
+                ]),
         ]);
     }
 
-    public function placeUpdate($rolePrefix, Request $request, Category $place)
-    {
-        $locale = $request->input('locale', app()->getLocale());
-        if (! in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
+    /**
+     * PLACE UPDATE
+     */
+    public function placeUpdate(
+        $rolePrefix,
+        Request $request,
+        Category $place
+    ) {
+        if (!$this->isPlaceType($place)) {
+            abort(404);
         }
 
-        $validated = $request->validate([
-            'value.en' => ['nullable', 'string', 'max:255'],
-            'value.gu' => ['nullable', 'string', 'max:255'],
-            'locale'   => ['nullable', 'string', 'in:en,gu'],
-        ]);
+        $this->validateLanguageValues($request);
 
-        $valueEn = trim($validated['value']['en'] ?? '');
-        $valueGu = trim($validated['value']['gu'] ?? '');
+        $values = $this->getLanguageValues($request);
 
-        if ($valueEn === '' && $valueGu === '') {
-            return back()->withErrors([
-                "value.{$locale}" => $locale === 'gu'
-                    ? 'પ્રસંગનુ નામ જરૂરી છે.'
-                    : 'Place name is required.',
-            ])->withInput();
+        /*
+         * At least one language is required.
+         */
+        if (!$this->hasAnyValue($values)) {
+            return back()
+                ->withErrors([
+                    $this->requiredErrorKey($request) =>
+                        'place_name_required',
+                ])
+                ->withInput();
         }
 
-        $place->setTranslation('type', 'en', 'Place');
-        $place->setTranslation('type', 'gu', 'પ્રસંગ');
-        $place->setTranslation('value', 'en', $valueEn);
-        $place->setTranslation('value', 'gu', $valueGu);
+        /*
+         * Update Place type for every configured language.
+         */
+        $place->setTranslations(
+            'type',
+            $this->placeTypeTranslations()
+        );
+
+        /*
+         * Update Place values for every configured language.
+         */
+        $place->setTranslations(
+            'value',
+            $values
+        );
+
         $place->save();
 
         return redirect()
             ->route('role.category.placelist', [
                 'rolePrefix' => $rolePrefix,
             ])
-            ->with('success', $locale === 'gu'
-                ? 'પ્રસંગ અપડેટ થયું.'
-                : 'Place updated successfully.');
+            ->with('success', 'place_updated_success');
     }
 
-
+    /**
+     * SHOW PLACE PADS
+     */
     public function placePadsShow($rolePrefix, Category $place)
     {
-        // dd('');
-        $locale = app()->getLocale();
-        if (! in_array($locale, ['en', 'gu'], true)) {
-            $locale = 'en';
+        if (!$this->isPlaceType($place)) {
+            abort(404, 'This category is not a Place.');
         }
 
-        // Only allow Creator type categories
-        $typeEn = $place->getTranslation('type', 'en', false);
-        $typeGu = $place->getTranslation('type', 'gu', false);
+        $locale = $this->resolveLocale();
 
-
-        // dd($typeEn);
-        if (
-            ! in_array(strtolower($typeEn), ['place']) &&
-            ! in_array($typeGu, ['રચયિતા', 'રચયિતા'])
-        ) {
-            abort(404, 'This category is not a Creator.');
-        }
-
-        // Helper to resolve translatable fields
+        /*
+         * Translation helper.
+         */
         $t = function ($model, string $field) use ($locale): string {
-            if (! $model) {
-                return '';
-            }
-
-            $value = $model->getTranslation($field, $locale, false)
-                ?: $model->getTranslation($field, 'en', false)
-                ?: $model->getTranslation($field, 'gu', false);
-
-            return is_string($value) ? $value : '';
+            return $this->t($model, $field, $locale);
         };
 
-        // Get all Pads that have this category
-        $pads = $place->pads()                          // ← relation must exist
+        /*
+         * Get all Pads linked to this Place.
+         */
+        $pads = $place->pads()
             ->with([
                 'categories:id,type,value',
                 'recordedVersion',
@@ -380,132 +613,191 @@ class PlaceController extends Controller
             ->get()
             ->map(function ($pad) use ($t) {
                 return [
-                    'id'             => $pad->id,
-                    'title'          => $t($pad, 'title'),
-                    'value'          => $t($pad, 'value'),
-                    'status'         => $pad->status,
+                    'id' => $pad->id,
+
+                    'title' => $t($pad, 'title'),
+
+                    'value' => $t($pad, 'value'),
+
+                    'status' => $pad->status,
+
                     'establish_date' => $pad->establish_date
-                        ? \Carbon\Carbon::parse($pad->establish_date)->format('Y-m-d')
+                        ? Carbon::parse($pad->establish_date)->format('Y-m-d')
                         : null,
-                    'created_at'     => optional($pad->created_at)?->toIso8601String(),
-                    'updated_at'     => optional($pad->updated_at)?->toIso8601String(),
-                    'categories'     => $pad->categories->map(fn($c) => [
-                        'id'    => $c->id,
-                        'type'  => $t($c, 'type'),
-                        'value' => $t($c, 'value'),
-                    ])->values(),
-                    'recorded_version' => $pad->recordedVersion ? [
-                        'id'             => $pad->recordedVersion->id,
-                        'media_type'     => $pad->recordedVersion->media_type,
-                        'file_url'       => $pad->recordedVersion->file_url,
-                        'singer'         => $t($pad->recordedVersion, 'singer'),
-                        'publisher'      => $t($pad->recordedVersion, 'publisher'),
-                        'vocalization'   => $t($pad->recordedVersion, 'vocalization'),
-                        'recording_type' => $pad->recordedVersion->recording_type,
-                    ] : null,
+
+                    'created_at' => optional($pad->created_at)?->toIso8601String(),
+
+                    'updated_at' => optional($pad->updated_at)?->toIso8601String(),
+
+                    'categories' => $pad->categories
+                        ->map(fn ($category) => [
+                            'id' => $category->id,
+                            'type' => $t($category, 'type'),
+                            'value' => $t($category, 'value'),
+                        ])
+                        ->values(),
+
+                    'recorded_version' => $pad->recordedVersion
+                        ? [
+                            'id' => $pad->recordedVersion->id,
+
+                            'media_type' =>
+                                $pad->recordedVersion->media_type,
+
+                            'file_url' =>
+                                $pad->recordedVersion->file_url,
+
+                            'singer' =>
+                                $t($pad->recordedVersion, 'singer'),
+
+                            'publisher' =>
+                                $t($pad->recordedVersion, 'publisher'),
+
+                            'vocalization' =>
+                                $t($pad->recordedVersion, 'vocalization'),
+
+                            'recording_type' =>
+                                $pad->recordedVersion->recording_type,
+                        ]
+                        : null,
                 ];
             });
 
         $placePayload = [
-            'id'    => $place->id,
-            'name'  => $t($place, 'value'),   // "Bramhanand swami" / "બ્રહ્માનંદ સ્વામી"
-            'type'  => $t($place, 'type'),    // "Creator" / "રચયિતા"
+            'id' => $place->id,
+
+            'name' => $t($place, 'value'),
+
+            'type' => $t($place, 'type'),
         ];
 
-        return Inertia::render('Admin/Categories/Place/PlaceShowPads', [
-            'swami'  => $placePayload,   // keep key name "swami" for frontend
-            'pads'   => $pads,
-            'locale' => $locale,
-        ]);
+        return Inertia::render(
+            'Admin/Categories/Place/PlaceShowPads',
+            [
+                /*
+                 * Keep "place" as the proper frontend key.
+                 *
+                 * If your existing frontend currently expects "swami",
+                 * you can keep "swami" temporarily.
+                 */
+                'place' => $placePayload,
+
+                'pads' => $pads,
+
+                'locale' => $locale,
+
+                'languages' => Language::query()
+                    ->orderBy('id')
+                    ->get([
+                        'id',
+                        'code',
+                        'name',
+                    ]),
+            ]
+        );
     }
 
-
-    public function placeDestroy($rolePrefix, Request $request, $id)
-    {
+    /**
+     * DELETE PLACE
+     */
+    public function placeDestroy(
+        $rolePrefix,
+        Request $request,
+        $id
+    ) {
         $place = Category::findOrFail($id);
 
-        // Make sure this category is actually Place
-        $typeEn = $place->getTranslation('type', 'en', false);
-
-        if ($typeEn !== 'Place') {
+        if (!$this->isPlaceType($place)) {
             abort(404);
         }
 
-        $locale = app()->getLocale();
-
-        $deleteRelatedPads = $request->boolean('delete_related_pads');
+        $deleteRelatedPads =
+            $request->boolean('delete_related_pads');
 
         if ($deleteRelatedPads) {
-
-            // Get only pads linked to this Place
             $padIds = $place->pads()->pluck('pads.id');
 
-            // Delete related pads
             if ($padIds->isNotEmpty()) {
-                \App\Models\Pad::whereIn('id', $padIds)->delete();
+                Pad::whereIn('id', $padIds)->delete();
             }
         }
 
-        // Delete Place
         $place->delete();
 
-        $message = $deleteRelatedPads
-            ? ($locale === 'gu'
-                ? 'સ્થળ અને તેના બધા પદો સફળતાપૂર્વક કાઢી નાખ્યા.'
-                : 'Place and its related pads deleted successfully.')
-            : ($locale === 'gu'
-                ? 'સ્થળ સફળતાપૂર્વક કાઢી નાખ્યું.'
-                : 'Place deleted successfully.');
-
-        return back()->with('success', $message);
+        return back()->with(
+            'success',
+            $deleteRelatedPads
+                ? 'place_and_pads_deleted_success'
+                : 'place_deleted_success'
+        );
     }
 
-    public function bulkDestroy($rolePrefix, Request $request)
-    {
+    /**
+     * BULK DELETE PLACES
+     */
+    public function bulkDestroy(
+        $rolePrefix,
+        Request $request
+    ) {
         $request->validate([
-            'ids'   => 'required|array',
-            'ids.*' => 'integer|exists:categories,id',
+            'ids' => [
+                'required',
+                'array',
+            ],
+
+            'ids.*' => [
+                'integer',
+                'exists:categories,id',
+            ],
         ]);
 
         $ids = $request->input('ids', []);
-        $deletePads = $request->boolean('delete_related_pads');
-        $locale = app()->getLocale();
 
         if (empty($ids)) {
             return back()->with(
                 'error',
-                $locale === 'gu'
-                    ? 'કોઈ સ્થળ પસંદ કરવામાં આવ્યું નથી.'
-                    : 'No places selected.'
+                'select_at_least_one_place'
             );
         }
 
-        $places = Category::whereIn('id', $ids)->get();
+        /*
+         * Only retrieve categories that are actually Places.
+         */
+        $places = Category::whereIn('id', $ids)
+            ->get()
+            ->filter(fn ($category) => $this->isPlaceType($category))
+            ->values();
+
+        if ($places->isEmpty()) {
+            return back()->with(
+                'error',
+                'select_at_least_one_place'
+            );
+        }
+
+        $deletePads =
+            $request->boolean('delete_related_pads');
 
         if ($deletePads) {
             foreach ($places as $place) {
-
-                // Get only pads linked to this Place
                 $padIds = $place->pads()->pluck('pads.id');
 
-                // Delete related pads
                 if ($padIds->isNotEmpty()) {
-                    \App\Models\Pad::whereIn('id', $padIds)->delete();
+                    Pad::whereIn('id', $padIds)->delete();
                 }
             }
         }
 
-        // Delete Places
-        Category::whereIn('id', $ids)->delete();
+        Category::whereIn(
+            'id',
+            $places->pluck('id')
+        )->delete();
 
-        $message = $deletePads
-            ? ($locale === 'gu'
-                ? 'સ્થળો અને તેમના બધા પદો સફળતાપૂર્વક કાઢી નાખવામાં આવ્યા.'
-                : 'Places and their related pads deleted successfully.')
-            : ($locale === 'gu'
-                ? 'સ્થળો સફળતાપૂર્વક કાઢી નાખવામાં આવ્યા.'
-                : 'Places deleted successfully.');
-
-        return back()->with('success', $message);
+        return back()->with(
+            'success',
+            $deletePads
+                ? 'places_and_pads_deleted_success'
+                : 'places_deleted_success'
+        );
     }
 }

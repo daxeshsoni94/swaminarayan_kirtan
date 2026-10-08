@@ -133,12 +133,14 @@ class ProfileController extends Controller
 
         $user = $request->user();
 
+        $user->delete();
+        
         Auth::logout();
 
 
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return Redirect::to('/');
+        return Redirect::to('/')->with('success', 'user_deleted_success');
     }
 }

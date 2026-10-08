@@ -3,8 +3,8 @@ import React from 'react';
 import { Col, Row } from 'react-bootstrap';
 
 interface BreadCrumbProps {
-    title: string;
-    pageTitle : string;
+    title: React.ReactNode;
+    pageTitle : React.ReactNode;
 }
 
 const BreadCrumb = ({ title, pageTitle } : BreadCrumbProps) => {

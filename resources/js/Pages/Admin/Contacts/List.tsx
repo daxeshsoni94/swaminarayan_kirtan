@@ -1,237 +1,360 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+
 import { Card, Col, Container, Dropdown, Row } from "react-bootstrap";
+
 import TableContainer from "../../../Components/Common/TableContainer";
+
 import { Head, router, usePage } from "@inertiajs/react";
+
 import BreadCrumb from "../../../Components/Common/BreadCrumb";
+
 import DeleteModal from "../../../Components/Common/DeleteModal";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+
 import Layout from "../../../Layouts";
+
 import { gujaratiNumber } from "../../../utils/number";
+
+// ─── Resolve multilingual DB value ───────────────────────────────────────────
+
+const tValue = (value: any, locale: string): string => {
+    if (value == null) {
+        return "";
+    }
+
+    if (typeof value === "string") {
+        return value;
+    }
+
+    if (typeof value === "object") {
+        const currentValue = value[locale];
+
+        if (typeof currentValue === "string" && currentValue.trim() !== "") {
+            return currentValue;
+        }
+
+        const fallback = Object.values(value).find(
+            (item: any) => typeof item === "string" && item.trim() !== "",
+        );
+
+        return typeof fallback === "string" ? fallback : "";
+    }
+
+    return String(value);
+};
+
+// ─── Translation helper ──────────────────────────────────────────────────────
+
+const createTranslator = (translations: Record<string, any>) => {
+    return (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ): string => {
+        let text = translations[key] ?? key;
+
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(`:${name}`, String(value));
+        });
+
+        return text;
+    };
+};
+
+// ─── User Reference ──────────────────────────────────────────────────────────
 
 interface UserRef {
     id: number;
-    name?: string | { en?: string; gu?: string };
+
+    name?: string | Record<string, string>;
 }
+
+// ─── Contact Item ────────────────────────────────────────────────────────────
 
 interface ContactItem {
     id: number;
+
     user_id: number | null;
-    name: string;
+
+    name: string | Record<string, string>;
+
     email: string;
+
     phone: string | null;
+
     reason_for_contact: string;
+
     status: "new" | "read" | "resolved";
+
     user?: UserRef | null;
+
     created_at?: string;
+
     updated_at?: string;
 }
 
+// ─── Pagination ──────────────────────────────────────────────────────────────
+
 interface PaginatedContacts {
     data: ContactItem[];
+
     current_page: number;
+
     last_page: number;
+
     per_page: number;
+
     total: number;
-    links: { url: string | null; label: string; active: boolean }[];
+
+    links: {
+        url: string | null;
+        label: string;
+        active: boolean;
+    }[];
 }
+
+// ─── Props ───────────────────────────────────────────────────────────────────
 
 interface Props {
     contacts: PaginatedContacts;
+
     filters?: {
         search?: string;
+
         status?: string | null;
     };
 }
 
-const translations = {
-    en: {
-        pageTitle: "Contacts",
-        listTitleAll: "All Submissions",
-        listTitleNew: "New",
-        listTitleRead: "Read",
-        listTitleResolved: "Resolved",
-        searchPlaceholder: "Search name, email, phone or reason…",
-        noData: "No submissions found.",
-        showing: "Showing",
-        of: "of",
-        results: "results",
-        id: "ID",
-        name: "Name",
-        email: "Email",
-        phone: "Phone",
-        reason: "Reason",
-        status: "Status",
-        createdAt: "Submitted At",
-        actions: "Actions",
-        view: "View",
-        delete: "Delete",
-        statusNew: "New",
-        statusRead: "Read",
-        statusResolved: "Resolved",
-        deleteSuccess: "Contact deleted successfully",
-        bulkDeleteSuccess: "Contacts deleted successfully.",
-        bulkDeleteFail: "Failed to delete contacts.",
-        selectAtLeastOne: "Select at least one item.",
-    },
-    gu: {
-        pageTitle: "સંપર્કો",
-        listTitleAll: "બધા સબમિશન",
-        listTitleNew: "નવા",
-        listTitleRead: "વાંચેલા",
-        listTitleResolved: "ઉકેલાયેલા",
-        searchPlaceholder: "નામ, ઈમેઈલ, ફોન અથવા કારણ શોધો…",
-        noData: "કોઈ સબમિશન મળ્યા નથી.",
-        showing: "બતાવી રહ્યા છીએ",
-        of: "માંથી",
-        results: "પરિણામો",
-        id: "ક્રમ",
-        name: "નામ",
-        email: "ઈમેઈલ",
-        phone: "ફોન",
-        reason: "કારણ",
-        status: "સ્થિતિ",
-        createdAt: "સબમિટ તારીખ",
-        actions: "ક્રિયાઓ",
-        view: "જુઓ",
-        delete: "કાઢી નાખો",
-        statusNew: "નવું",
-        statusRead: "વાંચેલું",
-        statusResolved: "ઉકેલાયેલું",
-        deleteSuccess: "સંપર્ક સફળતાપૂર્વક કાઢી નાખ્યો",
-        bulkDeleteSuccess: "સંપર્કો સફળતાપૂર્વક કાઢી નાખ્યા.",
-        bulkDeleteFail: "સંપર્કો કાઢી નાખવામાં નિષ્ફળતા.",
-        selectAtLeastOne: "ઓછામાં ઓછું એક આઇટમ પસંદ કરો.",
-    },
-};
+// ─── Status Badge ────────────────────────────────────────────────────────────
 
 const StatusBadge = ({
     status,
     tr,
 }: {
     status: string;
-    tr: (typeof translations)["en"];
+
+    tr: (key: string, replacements?: Record<string, string | number>) => string;
 }) => {
-    const map: Record<string, { className: string; label: string }> = {
+    const key = (status || "").toLowerCase();
+
+    const map: Record<
+        string,
+        {
+            className: string;
+            translationKey: string;
+        }
+    > = {
         new: {
             className: "bg-danger-subtle text-danger",
-            label: tr.statusNew,
+            translationKey: "status_new",
         },
+
         read: {
             className: "bg-info-subtle text-info",
-            label: tr.statusRead,
+            translationKey: "status_read",
         },
+
         resolved: {
             className: "bg-success-subtle text-success",
-            label: tr.statusResolved,
+            translationKey: "status_resolved",
         },
     };
-    const item = map[status] ?? map.new;
-    return <span className={`badge ${item.className}`}>{item.label}</span>;
+
+    const item = map[key] ?? map.new;
+
+    return (
+        <span className={`badge ${item.className}`}>
+            {tr(item.translationKey)}
+        </span>
+    );
 };
 
+// ─── Date formatter ──────────────────────────────────────────────────────────
+
+const formatDate = (value: any, locale: string): string => {
+    if (value === null || value === undefined || value === "") {
+        return "—";
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return String(value);
+    }
+
+    return new Intl.DateTimeFormat(locale, {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+    }).format(date);
+};
+
+// ─── Contacts List ───────────────────────────────────────────────────────────
+
 const List: React.FC<Props> = ({ contacts, filters }) => {
-    const page = usePage().props as { locale?: string };
-    const locale = (page.locale === "gu" ? "gu" : "en") as "en" | "gu";
-    const { auth } = usePage().props as any;
+    const page = usePage().props as any;
+
+    const { auth, translations = {}, locale } = page;
+
+    const currentLocale = locale || "gu";
+
+    const tr = useMemo(() => createTranslator(translations), [translations]);
+
+    // ─── Dynamic role prefix ─────────────────────────────────────────────
+
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
-    const tr = translations[locale];
+
+    // ─── List title ──────────────────────────────────────────────────────
 
     const listTitle =
         filters?.status === "new"
-            ? tr.listTitleNew
+            ? tr("contacts_new")
             : filters?.status === "read"
-              ? tr.listTitleRead
+              ? tr("contacts_read")
               : filters?.status === "resolved"
-                ? tr.listTitleResolved
-                : tr.listTitleAll;
+                ? tr("contacts_resolved")
+                : tr("contacts_all");
+
+    // ─── State ───────────────────────────────────────────────────────────
 
     const [data, setData] = useState<ContactItem[]>(contacts?.data ?? []);
+
     const [item, setItem] = useState<ContactItem | null>(null);
+
     const [deleteModal, setDeleteModal] = useState(false);
+
     const [deleteModalMulti, setDeleteModalMulti] = useState(false);
+
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
+
     const [isMultiDeleteButton, setIsMultiDeleteButton] = useState(false);
 
+    // ─── Update table data ───────────────────────────────────────────────
+
     useEffect(() => {
-        if (contacts?.data) setData(contacts.data);
+        if (contacts?.data) {
+            setData(contacts.data);
+        }
     }, [contacts]);
+
+    // ─── Clear selections when page changes ──────────────────────────────
 
     useEffect(() => {
         setSelectedIds([]);
+
         setIsMultiDeleteButton(false);
     }, [contacts?.data]);
+
+    // ─── View Contact ────────────────────────────────────────────────────
 
     const handleView = (row: ContactItem) => {
         router.visit(
             route("role.contacts.show", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 contact: row.id,
             }),
         );
     };
+
+    // ─── Open Delete Modal ───────────────────────────────────────────────
+
     const onClickDelete = (row: ContactItem) => {
         setItem(row);
+
         setDeleteModal(true);
     };
 
+    // ─── Delete Single Contact ───────────────────────────────────────────
+
     const handleDelete = () => {
-        if (!item) return;
+        if (!item) {
+            return;
+        }
 
         router.delete(
             route("role.contacts.destroy", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 contact: item.id,
             }),
             {
+                preserveScroll: true,
+
                 onSuccess: () => {
                     setDeleteModal(false);
-                    toast.success(tr.deleteSuccess);
+
+                    setItem(null);
+
+                    // toast.success(tr("contact_deleted_success"));
+                },
+
+                onError: () => {
+                    // toast.error(tr("contact_delete_failed"));
                 },
             },
         );
     };
 
+    // ─── Select All ──────────────────────────────────────────────────────
+
     const checkedAll = useCallback(
         (checked: boolean) => {
             if (checked) {
-                const allIds = data.map((r) => Number(r.id));
+                const allIds = data.map((row) => Number(row.id));
+
                 setSelectedIds(allIds);
+
                 setIsMultiDeleteButton(allIds.length > 0);
             } else {
                 setSelectedIds([]);
+
                 setIsMultiDeleteButton(false);
             }
         },
         [data],
     );
 
+    // ─── Delete Multiple Contacts ────────────────────────────────────────
+
     const deleteMultiple = () => {
         if (!selectedIds.length) {
-            toast.warning(tr.selectAtLeastOne);
+            // toast.warning(tr("select_at_least_one_contact"));
+
             return;
         }
+
         router.post(
             route("role.contacts.bulk-destroy", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
-            { ids: selectedIds },
+            {
+                ids: selectedIds,
+
+                _method: "DELETE",
+            },
             {
                 preserveScroll: true,
+
                 onSuccess: () => {
-                    toast.success(tr.bulkDeleteSuccess);
+                    // toast.success(tr("contacts_deleted_success"));
+
                     setSelectedIds([]);
+
                     setIsMultiDeleteButton(false);
                 },
-                onError: () => toast.error(tr.bulkDeleteFail),
+
+                onError: () => {
+                    // toast.error(tr("contacts_delete_failed"));
+                },
             },
         );
     };
 
+    // ─── Table Columns ───────────────────────────────────────────────────
+
     const columns = useMemo(
         () => [
+            // ─── Checkbox ────────────────────────────────────────────────
+
             {
                 header: (
                     <input
@@ -245,6 +368,7 @@ const List: React.FC<Props> = ({ contacts, filters }) => {
                         onChange={(e) => checkedAll(e.target.checked)}
                     />
                 ),
+
                 cell: (cellProps: any) => (
                     <input
                         type="checkbox"
@@ -256,98 +380,154 @@ const List: React.FC<Props> = ({ contacts, filters }) => {
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => {
                             const id = Number(cellProps.row.original.id);
+
                             setSelectedIds((prev) => {
                                 const updated = e.target.checked
                                     ? [...prev, id]
                                     : prev.filter((x) => x !== id);
+
                                 setIsMultiDeleteButton(updated.length > 0);
+
                                 return updated;
                             });
                         }}
                     />
                 ),
+
                 id: "#",
             },
+
+            // ─── ID ──────────────────────────────────────────────────────
+
             {
-                header: tr.id,
+                header: tr("id"),
+
                 accessorKey: "id",
+
                 enableColumnFilter: false,
-                cell: (cellProps: any) => (
-                    <span className="fw-medium text-primary">
-                        #{gujaratiNumber(cellProps.getValue(), locale)}
-                    </span>
-                ),
-            },
-            {
-                header: tr.name,
-                accessorKey: "name",
-                enableColumnFilter: false,
-                cell: (cellProps: any) => (
-                    <span className="text-body fw-semibold">
-                        {cellProps.getValue()}
-                    </span>
-                ),
-            },
-            {
-                header: tr.email,
-                accessorKey: "email",
-                enableColumnFilter: false,
-                cell: (cellProps: any) => <span>{cellProps.getValue()}</span>,
-            },
-            {
-                header: tr.phone,
-                accessorKey: "phone",
-                enableColumnFilter: false,
-                cell: (cellProps: any) => (
-                    <span>
-                        {cellProps.getValue()
-                            ? gujaratiNumber(cellProps.getValue(), locale)
-                            : "—"}
-                    </span>
-                ),
-            },
-            {
-                header: tr.reason,
-                accessorKey: "reason_for_contact",
-                enableColumnFilter: false,
+
                 cell: (cellProps: any) => {
-                    const text = cellProps.getValue() || "";
-                    const short =
-                        text.length > 40 ? text.slice(0, 40) + "…" : text;
-                    return <span className="text-muted">{short}</span>;
-                },
-            },
-            {
-                header: tr.status,
-                accessorKey: "status",
-                enableColumnFilter: false,
-                cell: (cellProps: any) => (
-                    <StatusBadge status={cellProps.getValue()} tr={tr} />
-                ),
-            },
-            {
-                header: tr.createdAt,
-                accessorKey: "created_at",
-                enableColumnFilter: false,
-                cell: (cellProps: any) => {
-                    const value = cellProps.getValue();
-                    if (!value) return <span className="text-muted">—</span>;
-                    const formattedDate = new Date(value)
-                        .toLocaleDateString("en-IN", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            year: "numeric",
-                        })
-                        .replace(/\//g, "-");
+                    const rowIndex =
+                        (contacts.current_page - 1) * contacts.per_page +
+                        cellProps.row.index +
+                        1;
                     return (
-                        <span className="text-muted">
-                            {gujaratiNumber(formattedDate, locale)}
+                        <span className="fw-medium text-primary">
+                            {gujaratiNumber(rowIndex, locale)}
                         </span>
                     );
                 },
             },
+
+            // ─── Name ────────────────────────────────────────────────────
+
             {
-                header: tr.actions,
+                header: tr("name"),
+
+                accessorKey: "name",
+
+                enableColumnFilter: false,
+
+                cell: (cellProps: any) => {
+                    const name = tValue(cellProps.getValue(), currentLocale);
+
+                    return (
+                        <span className="text-body fw-semibold">
+                            {name || "—"}
+                        </span>
+                    );
+                },
+            },
+
+            // ─── Email ───────────────────────────────────────────────────
+
+            {
+                header: tr("email"),
+
+                accessorKey: "email",
+
+                enableColumnFilter: false,
+
+                cell: (cellProps: any) => (
+                    <span>{cellProps.getValue() || "—"}</span>
+                ),
+            },
+
+            // ─── Phone ───────────────────────────────────────────────────
+
+            {
+                header: tr("phone"),
+
+                accessorKey: "phone",
+
+                enableColumnFilter: false,
+
+                cell: (cellProps: any) => (
+                    <span>
+                        {cellProps.getValue()
+                            ? gujaratiNumber(
+                                  cellProps.getValue(),
+                                  currentLocale,
+                              )
+                            : "—"}
+                    </span>
+                ),
+            },
+
+            // ─── Reason ──────────────────────────────────────────────────
+
+            {
+                header: tr("reason"),
+
+                accessorKey: "reason_for_contact",
+
+                enableColumnFilter: false,
+
+                cell: (cellProps: any) => {
+                    const text = cellProps.getValue() || "";
+
+                    const short =
+                        text.length > 40 ? `${text.slice(0, 40)}…` : text;
+
+                    return <span className="text-muted">{short || "—"}</span>;
+                },
+            },
+
+            // ─── Status ──────────────────────────────────────────────────
+
+            {
+                header: tr("status"),
+
+                accessorKey: "status",
+
+                enableColumnFilter: false,
+
+                cell: (cellProps: any) => (
+                    <StatusBadge status={cellProps.getValue()} tr={tr} />
+                ),
+            },
+
+            // ─── Created At ──────────────────────────────────────────────
+
+            {
+                header: tr("created_at"),
+
+                accessorKey: "created_at",
+
+                enableColumnFilter: false,
+
+                cell: (cellProps: any) => (
+                    <span className="text-muted">
+                        {formatDate(cellProps.getValue(), currentLocale)}
+                    </span>
+                ),
+            },
+
+            // ─── Actions ─────────────────────────────────────────────────
+
+            {
+                header: tr("actions"),
+
                 cell: (cellProps: any) => (
                     <div onClick={(e) => e.stopPropagation()}>
                         <Dropdown>
@@ -357,6 +537,7 @@ const List: React.FC<Props> = ({ contacts, filters }) => {
                             >
                                 <i className="ri-more-fill align-middle"></i>
                             </Dropdown.Toggle>
+
                             <Dropdown.Menu className="dropdown-menu-end">
                                 <li>
                                     <Dropdown.Item
@@ -365,9 +546,11 @@ const List: React.FC<Props> = ({ contacts, filters }) => {
                                         }
                                     >
                                         <i className="ri-eye-fill align-bottom me-2 text-muted"></i>
-                                        {tr.view}
+
+                                        {tr("view")}
                                     </Dropdown.Item>
                                 </li>
+
                                 <li>
                                     <Dropdown.Item
                                         className="remove-item-btn"
@@ -377,8 +560,9 @@ const List: React.FC<Props> = ({ contacts, filters }) => {
                                             )
                                         }
                                     >
-                                        <i className="ri-delete-bin-fill align-bottom me-2 text-muted"></i>{" "}
-                                        {tr.delete}
+                                        <i className="ri-delete-bin-fill align-bottom me-2 text-muted"></i>
+
+                                        {tr("delete")}
                                     </Dropdown.Item>
                                 </li>
                             </Dropdown.Menu>
@@ -387,25 +571,32 @@ const List: React.FC<Props> = ({ contacts, filters }) => {
                 ),
             },
         ],
-        [locale, tr, checkedAll, selectedIds, data],
+        [currentLocale, tr, checkedAll, selectedIds, data],
     );
 
     return (
         <React.Fragment>
-            <Head title={tr.pageTitle} />
+            <Head title={tr("contacts")} />
+
             <div className="page-content">
                 <Container fluid>
-                    <BreadCrumb title={listTitle} pageTitle={tr.pageTitle} />
+                    <BreadCrumb title={listTitle} pageTitle={tr("contacts")} />
+
+                    {/* ─── Single Delete ─────────────────────────────── */}
 
                     <DeleteModal
                         show={deleteModal}
                         onDeleteClick={handleDelete}
                         onCloseClick={() => setDeleteModal(false)}
                     />
+
+                    {/* ─── Multiple Delete ──────────────────────────── */}
+
                     <DeleteModal
                         show={deleteModalMulti}
                         onDeleteClick={() => {
                             deleteMultiple();
+
                             setDeleteModalMulti(false);
                         }}
                         onCloseClick={() => setDeleteModalMulti(false)}
@@ -419,6 +610,7 @@ const List: React.FC<Props> = ({ contacts, filters }) => {
                                         <h5 className="card-title mb-0 flex-grow-1">
                                             {listTitle}
                                         </h5>
+
                                         <div className="flex-shrink-0">
                                             {isMultiDeleteButton && (
                                                 <button
@@ -446,25 +638,34 @@ const List: React.FC<Props> = ({ contacts, filters }) => {
                                                 customPageSize={10}
                                                 divClass="table-responsive table-card mb-3"
                                                 tableClass="align-middle table-nowrap mb-0"
-                                                SearchPlaceholder={
-                                                    tr.searchPlaceholder
-                                                }
+                                                SearchPlaceholder={tr(
+                                                    "contact_search_placeholder",
+                                                )}
                                             />
 
                                             {contacts.last_page > 1 && (
                                                 <div className="d-flex justify-content-between align-items-center mt-2">
                                                     <small className="text-muted">
-                                                        {tr.showing}{" "}
-                                                        {data.length} {tr.of}{" "}
+                                                        {tr("showing")}{" "}
+                                                        {data.length} {tr("of")}{" "}
                                                         {contacts.total}{" "}
-                                                        {tr.results}
+                                                        {tr("results")}
                                                     </small>
+
                                                     <ul className="pagination pagination-sm mb-0">
                                                         {contacts.links.map(
                                                             (link, idx) => (
                                                                 <li
                                                                     key={idx}
-                                                                    className={`page-item ${link.active ? "active" : ""} ${!link.url ? "disabled" : ""}`}
+                                                                    className={`page-item ${
+                                                                        link.active
+                                                                            ? "active"
+                                                                            : ""
+                                                                    } ${
+                                                                        !link.url
+                                                                            ? "disabled"
+                                                                            : ""
+                                                                    }`}
                                                                 >
                                                                     <button
                                                                         className="page-link"
@@ -490,13 +691,9 @@ const List: React.FC<Props> = ({ contacts, filters }) => {
                                         </>
                                     ) : (
                                         <div className="text-center py-5 text-muted">
-                                            {tr.noData}
+                                            {tr("no_contacts_found")}
                                         </div>
                                     )}
-                                    <ToastContainer
-                                        closeButton={false}
-                                        limit={1}
-                                    />
                                 </Card.Body>
                             </Card>
                         </Col>
@@ -508,4 +705,5 @@ const List: React.FC<Props> = ({ contacts, filters }) => {
 };
 
 List.layout = (page: any) => <Layout children={page} />;
+
 export default List;

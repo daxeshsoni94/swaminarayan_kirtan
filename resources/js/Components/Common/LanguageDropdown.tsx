@@ -4,7 +4,7 @@ import { get } from "lodash";
 
 //i18n
 import i18n from "../../i18n";
-import languages from "../../common/languages";
+// import languages from "../../common/languages";
 
 
 const LanguageDropdown = () => {

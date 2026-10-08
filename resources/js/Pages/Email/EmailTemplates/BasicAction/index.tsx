@@ -13,7 +13,7 @@ const index = () => {
     
     return (
         <React.Fragment>
-             <Head title = "Basic Action | Velzon - React Admin & Dashboard Template"/>
+             <Head title = "Basic Action"/>
             <div className="page-content">
                 <Container fluid>
                     <BreadCrumb title="Basic Action" pageTitle="Basic Action" />

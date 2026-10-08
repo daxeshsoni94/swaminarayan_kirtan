@@ -1,12 +1,17 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+
 import { Card, Col, Container, Dropdown, Row } from "react-bootstrap";
+
 import TableContainer from "../../../Components/Common/TableContainer";
+
 import { Head, router, usePage } from "@inertiajs/react";
+
 import BreadCrumb from "../../../Components/Common/BreadCrumb";
+
 import DeleteModal from "../../../Components/Common/DeleteModal";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+
 import Layout from "../../../Layouts";
+
 import { gujaratiNumber } from "../../../utils/number";
 
 interface Permission {
@@ -31,80 +36,101 @@ interface PaginatedRoles {
     last_page: number;
     per_page: number;
     total: number;
-    links: { url: string | null; label: string; active: boolean }[];
+    links: {
+        url: string | null;
+        label: string;
+        active: boolean;
+    }[];
 }
 
 interface Props {
     roles: PaginatedRoles;
-    filters?: { search?: string };
+    filters?: {
+        search?: string;
+    };
 }
 
-const translations = {
-    en: {
-        pageTitle: "Roles",
-        listTitle: "Roles List",
-        create: "Create Role",
-        searchPlaceholder: "Search for role name…",
-        noData: "No roles found.",
-        showing: "Showing",
-        of: "of",
-        results: "results",
-        id: "ID",
-        name: "Name",
-        createdAt: "Created At",
-        actions: "Actions",
-        edit: "Edit",
-        delete: "Delete",
-        deleteSuccess: "Role deleted successfully",
-        bulkDeleteSuccess: "Roles deleted successfully.",
-        bulkDeleteFail: "Failed to delete roles.",
-        selectAtLeastOne: "Select at least one item.",
-    },
-    gu: {
-        pageTitle: "ભૂમિકાઓ",
-        listTitle: "ભૂમિકા યાદી",
-        create: "ભૂમિકા બનાવો",
-        searchPlaceholder: "ભૂમિકાનું નામ શોધો…",
-        noData: "કોઈ ભૂમિકા મળી નથી.",
-        showing: "બતાવી રહ્યા છીએ",
-        of: "માંથી",
-        results: "પરિણામો",
-        id: "ક્રમ",
-        name: "નામ",
-        createdAt: "બનાવ્યાની તારીખ",
-        actions: "ક્રિયાઓ",
-        edit: "ફેરફાર કરો",
-        delete: "કાઢી નાખો",
-        deleteSuccess: "ભૂમિકા સફળતાપૂર્વક કાઢી નાખી",
-        bulkDeleteSuccess: "ભૂમિકાઓ સફળતાપૂર્વક કાઢી નાખી.",
-        bulkDeleteFail: "ભૂમિકાઓ કાઢી નાખવામાં નિષ્ફળતા.",
-        selectAtLeastOne: "ઓછામાં ઓછું એક આઇટમ પસંદ કરો.",
-    },
+type TranslationFunction = (
+    key: string,
+    replacements?: Record<string, string | number>,
+) => string;
+
+const createTranslator = (
+    translations: Record<string, any>,
+): TranslationFunction => {
+    return (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ): string => {
+        let text = translations[key] ?? key;
+
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(new RegExp(`:${name}`, "g"), String(value));
+        });
+
+        return text;
+    };
 };
 
-const List: React.FC<Props> = ({ roles, filters }) => {
-    const page = usePage().props as { locale?: string };
-    const { auth } = usePage().props as any;
+const formatDate = (value: any, locale: string): string => {
+    if (value === null || value === undefined || value === "") {
+        return "—";
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return String(value);
+    }
+
+    const parts = new Intl.DateTimeFormat(locale, {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+    }).formatToParts(date);
+
+    const day = parts.find((part) => part.type === "day")?.value ?? "";
+
+    const month = parts.find((part) => part.type === "month")?.value ?? "";
+
+    const year = parts.find((part) => part.type === "year")?.value ?? "";
+
+    const formatted = `${day}-${month}-${year}`;
+
+    return gujaratiNumber(formatted, locale);
+};
+
+const List: React.FC<Props> = ({ roles }) => {
+    const page = usePage().props as any;
+
+    const { auth, translations = {}, locale } = page;
+
+    const currentLocale = locale || "gu";
+
+    const tr = useMemo(() => createTranslator(translations), [translations]);
+
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
-    const locale = (page.locale === "gu" ? "gu" : "en") as "en" | "gu";
-    const tr = translations[locale];
 
     const [roleData, setRoleData] = useState<Role[]>(roles?.data ?? []);
+
     const [item, setItem] = useState<Role | null>(null);
+
     const [deleteModal, setDeleteModal] = useState(false);
+
     const [deleteModalMulti, setDeleteModalMulti] = useState(false);
 
-    // Multi-select
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
+
     const [isMultiDeleteButton, setIsMultiDeleteButton] = useState(false);
 
     useEffect(() => {
-        if (roles?.data) setRoleData(roles.data);
+        if (roles?.data) {
+            setRoleData(roles.data);
+        }
     }, [roles]);
 
-    // Clear selection when page data changes
     useEffect(() => {
         setSelectedIds([]);
         setIsMultiDeleteButton(false);
@@ -113,7 +139,7 @@ const List: React.FC<Props> = ({ roles, filters }) => {
     const handleCreate = () => {
         router.visit(
             route("role.roles.create", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
         );
     };
@@ -121,7 +147,7 @@ const List: React.FC<Props> = ({ roles, filters }) => {
     const handleEdit = (row: Role) => {
         router.visit(
             route("role.roles.edit", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 role: row.id,
             }),
         );
@@ -133,17 +159,22 @@ const List: React.FC<Props> = ({ roles, filters }) => {
     };
 
     const handleDelete = () => {
-        if (!item) return;
+        if (!item) {
+            return;
+        }
 
         router.delete(
             route("role.roles.destroy", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 role: item.id,
             }),
             {
+                preserveScroll: true,
                 onSuccess: () => {
                     setDeleteModal(false);
-                    toast.success(tr.deleteSuccess);
+                    setItem(null);
+
+                    // toast.success(tr("role_deleted_success"));
                 },
             },
         );
@@ -152,7 +183,8 @@ const List: React.FC<Props> = ({ roles, filters }) => {
     const checkedAll = useCallback(
         (checked: boolean) => {
             if (checked) {
-                const allIds = roleData.map((r) => Number(r.id));
+                const allIds = roleData.map((role) => Number(role.id));
+
                 setSelectedIds(allIds);
                 setIsMultiDeleteButton(allIds.length > 0);
             } else {
@@ -165,23 +197,30 @@ const List: React.FC<Props> = ({ roles, filters }) => {
 
     const deleteMultiple = () => {
         if (!selectedIds.length) {
-            toast.warning(tr.selectAtLeastOne);
+            // toast.warning(tr("select_at_least_one_role"));
+
             return;
         }
 
         router.post(
             route("role.roles.bulk-destroy", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
-            { ids: selectedIds },
+            {
+                ids: selectedIds,
+            },
             {
                 preserveScroll: true,
                 onSuccess: () => {
-                    toast.success(tr.bulkDeleteSuccess);
+                    // toast.success(tr("roles_deleted_success"));
+
                     setSelectedIds([]);
                     setIsMultiDeleteButton(false);
                 },
-                onError: () => toast.error(tr.bulkDeleteFail),
+
+                onError: () => {
+                    // toast.error(tr("roles_delete_failed"));
+                },
             },
         );
     };
@@ -201,6 +240,7 @@ const List: React.FC<Props> = ({ roles, filters }) => {
                         onChange={(e) => checkedAll(e.target.checked)}
                     />
                 ),
+
                 cell: (cellProps: any) => (
                     <input
                         type="checkbox"
@@ -212,59 +252,68 @@ const List: React.FC<Props> = ({ roles, filters }) => {
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => {
                             const id = Number(cellProps.row.original.id);
+
                             setSelectedIds((prev) => {
                                 const updated = e.target.checked
                                     ? [...prev, id]
                                     : prev.filter((x) => x !== id);
+
                                 setIsMultiDeleteButton(updated.length > 0);
+
                                 return updated;
                             });
                         }}
                     />
                 ),
+
                 id: "#",
             },
+
             {
-                header: tr.id,
+                header: tr("id"),
                 accessorKey: "id",
                 enableColumnFilter: false,
-                cell: (cellProps: any) => (
-                    <span className="fw-medium text-primary">
-                        #{gujaratiNumber(cellProps.getValue(), locale)}
-                    </span>
-                ),
+
+                cell: (cellProps: any) => {
+                    const rowIndex =
+                        (roles.current_page - 1) * roles.per_page +
+                        cellProps.row.index +
+                        1;
+                    return (
+                        <span className="fw-medium text-primary">
+                            {gujaratiNumber(rowIndex, locale)}
+                        </span>
+                    );
+                },
             },
+
             {
-                header: tr.name,
+                header: tr("role_name"),
                 accessorKey: "name",
                 enableColumnFilter: false,
+
                 cell: (cellProps: any) => (
                     <span className="text-body fw-semibold">
                         {cellProps.getValue()}
                     </span>
                 ),
             },
+
             {
-                header: tr.createdAt,
+                header: tr("created_at"),
                 accessorKey: "created_at",
                 enableColumnFilter: false,
-                cell: (cellProps: any) => {
-                    const formattedDate = new Date(cellProps.getValue())
-                        .toLocaleDateString("en-IN", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            year: "numeric",
-                        })
-                        .replace(/\//g, "-");
-                    return (
-                        <span className="text-muted">
-                            {gujaratiNumber(formattedDate, locale)}
-                        </span>
-                    );
-                },
+
+                cell: (cellProps: any) => (
+                    <span className="text-muted">
+                        {formatDate(cellProps.getValue(), currentLocale)}
+                    </span>
+                ),
             },
+
             {
-                header: tr.actions,
+                header: tr("role_actions"),
+
                 cell: (cellProps: any) => (
                     <div onClick={(e) => e.stopPropagation()}>
                         <Dropdown>
@@ -274,6 +323,7 @@ const List: React.FC<Props> = ({ roles, filters }) => {
                             >
                                 <i className="ri-more-fill align-middle"></i>
                             </Dropdown.Toggle>
+
                             <Dropdown.Menu className="dropdown-menu-end">
                                 <li>
                                     <Dropdown.Item
@@ -282,9 +332,11 @@ const List: React.FC<Props> = ({ roles, filters }) => {
                                         }
                                     >
                                         <i className="ri-pencil-fill align-bottom me-2 text-muted"></i>
-                                        {tr.edit}
+
+                                        {tr("role_edit")}
                                     </Dropdown.Item>
                                 </li>
+
                                 <li>
                                     <Dropdown.Item
                                         className="remove-item-btn"
@@ -294,8 +346,9 @@ const List: React.FC<Props> = ({ roles, filters }) => {
                                             )
                                         }
                                     >
-                                        <i className="ri-delete-bin-fill align-bottom me-2 text-muted"></i>{" "}
-                                        {tr.delete}
+                                        <i className="ri-delete-bin-fill align-bottom me-2 text-muted"></i>
+
+                                        {tr("role_delete")}
                                     </Dropdown.Item>
                                 </li>
                             </Dropdown.Menu>
@@ -304,24 +357,28 @@ const List: React.FC<Props> = ({ roles, filters }) => {
                 ),
             },
         ],
-        [locale, tr, checkedAll, selectedIds, roleData],
+        [currentLocale, tr, checkedAll, selectedIds, roleData],
     );
 
     return (
-        <React.Fragment>
-            <Head title={tr.pageTitle} />
+        <>
+            <Head title={tr("roles")} />
+
             <div className="page-content">
                 <Container fluid>
-                    <BreadCrumb title={tr.listTitle} pageTitle={tr.pageTitle} />
+                    <BreadCrumb
+                        title={tr("roles_list")}
+                        pageTitle={tr("roles")}
+                    />
 
-                    {/* Single delete */}
+                    {/* Single Delete */}
                     <DeleteModal
                         show={deleteModal}
                         onDeleteClick={handleDelete}
                         onCloseClick={() => setDeleteModal(false)}
                     />
 
-                    {/* Multi delete */}
+                    {/* Multiple Delete */}
                     <DeleteModal
                         show={deleteModalMulti}
                         onDeleteClick={() => {
@@ -337,8 +394,9 @@ const List: React.FC<Props> = ({ roles, filters }) => {
                                 <Card.Header className="border-0">
                                     <div className="d-flex align-items-center">
                                         <h5 className="card-title mb-0 flex-grow-1">
-                                            {tr.listTitle}
+                                            {tr("roles_list")}
                                         </h5>
+
                                         <div className="flex-shrink-0">
                                             <div className="d-flex flex-wrap gap-2">
                                                 <button
@@ -346,7 +404,7 @@ const List: React.FC<Props> = ({ roles, filters }) => {
                                                     onClick={handleCreate}
                                                 >
                                                     <i className="ri-add-line align-bottom"></i>{" "}
-                                                    {tr.create}
+                                                    {tr("create_role")}
                                                 </button>
 
                                                 {isMultiDeleteButton && (
@@ -376,25 +434,41 @@ const List: React.FC<Props> = ({ roles, filters }) => {
                                                 customPageSize={10}
                                                 divClass="table-responsive table-card mb-3"
                                                 tableClass="align-middle table-nowrap mb-0"
-                                                SearchPlaceholder={
-                                                    tr.searchPlaceholder
-                                                }
+                                                SearchPlaceholder={tr(
+                                                    "role_search_placeholder",
+                                                )}
                                             />
 
                                             {roles.last_page > 1 && (
                                                 <div className="d-flex justify-content-between align-items-center mt-2">
                                                     <small className="text-muted">
-                                                        {tr.showing}{" "}
-                                                        {roleData.length}{" "}
-                                                        {tr.of} {roles.total}{" "}
-                                                        {tr.results}
+                                                        {tr("showing")}{" "}
+                                                        {gujaratiNumber(
+                                                            roleData.length,
+                                                            currentLocale,
+                                                        )}{" "}
+                                                        {tr("of")}{" "}
+                                                        {gujaratiNumber(
+                                                            roles.total,
+                                                            currentLocale,
+                                                        )}{" "}
+                                                        {tr("results")}
                                                     </small>
+
                                                     <ul className="pagination pagination-sm mb-0">
                                                         {roles.links.map(
                                                             (link, idx) => (
                                                                 <li
                                                                     key={idx}
-                                                                    className={`page-item ${link.active ? "active" : ""} ${!link.url ? "disabled" : ""}`}
+                                                                    className={`page-item ${
+                                                                        link.active
+                                                                            ? "active"
+                                                                            : ""
+                                                                    } ${
+                                                                        !link.url
+                                                                            ? "disabled"
+                                                                            : ""
+                                                                    }`}
                                                                 >
                                                                     <button
                                                                         className="page-link"
@@ -420,22 +494,19 @@ const List: React.FC<Props> = ({ roles, filters }) => {
                                         </>
                                     ) : (
                                         <div className="text-center py-5 text-muted">
-                                            {tr.noData}
+                                            {tr("no_roles_found")}
                                         </div>
                                     )}
-                                    <ToastContainer
-                                        closeButton={false}
-                                        limit={1}
-                                    />
                                 </Card.Body>
                             </Card>
                         </Col>
                     </Row>
                 </Container>
             </div>
-        </React.Fragment>
+        </>
     );
 };
 
-List.layout = (page: any) => <Layout children={page} />;
+List.layout = (page: any) => <Layout>{page}</Layout>;
+
 export default List;

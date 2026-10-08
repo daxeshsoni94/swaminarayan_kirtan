@@ -7,12 +7,12 @@ import LayoutReducer from "./layouts/reducer";
 import MailboxReducer from "./mailbox/reducer";
 
 //  Dashboard Ecommerce
-import DashboardEcommerceReducer from "./dashboardEcommerce/reducer";
+import DashboardKirtanReducer from "./dashboardKirtan/reducer";
 
 const rootReducer = combineReducers({
     Layout: LayoutReducer,
     Mailbox: MailboxReducer,
-    DashboardEcommerce: DashboardEcommerceReducer,
+    DashboardKirtan: DashboardKirtanReducer,
 });
 
 export default rootReducer;

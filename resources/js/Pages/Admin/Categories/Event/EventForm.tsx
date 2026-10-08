@@ -1,132 +1,161 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo } from "react";
+
 import { Card, Col, Container, Form, Row } from "react-bootstrap";
+
 import BreadCrumb from "../../../../Components/Common/BreadCrumb";
+
 import { Head, Link, useForm, usePage } from "@inertiajs/react";
+
 import Layout from "../../../../Layouts";
+
 import { toast } from "react-toastify";
+
+/**
+ * Get the translated value from a multilingual JSON field.
+ *
+ * Example:
+ * {
+ *   en: "Holi",
+ *   gu: "હોળી"
+ * }
+ */
+const tValue = (value, locale) => {
+    if (value == null) return "";
+
+    if (typeof value === "string") {
+        return value;
+    }
+
+    if (typeof value === "object") {
+        return value[locale] ?? Object.values(value)[0] ?? "";
+    }
+
+    return String(value);
+};
+
+/**
+ * Centralized translation helper.
+ */
+const createTranslator = (translations) => {
+    return (key, replacements = {}) => {
+        let text = translations?.[key] ?? key;
+
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(`:${name}`, String(value));
+        });
+
+        return text;
+    };
+};
 
 const EventForm = ({ event = null }) => {
     const page = usePage().props;
 
-    const locale = page.locale === "gu" ? "gu" : "en";
-    const isGu = locale === "gu";
-    const { auth } = usePage().props as any;
+    const { auth, translations = {}, languages = [], locale } = page;
+
+    const currentLocale = locale || "gu";
+
+    const tr = useMemo(() => createTranslator(translations), [translations]);
+    const translateError = (error?: string) => {
+        if (!error) return "";
+        return tr(error);
+    };
+
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
+
     const isEdit = !!event?.id;
+
+    /**
+     * Create form values dynamically from the languages table.
+     *
+     * This avoids:
+     *
+     * en: ...
+     * gu: ...
+     *
+     * So if Hindi/Marathi/etc. is added later, the form
+     * automatically supports it.
+     */
+    const initialValue = useMemo(() => {
+        return languages.reduce((values, language) => {
+            values[language.code] = event?.value?.[language.code] ?? "";
+
+            return values;
+        }, {});
+    }, [languages, event]);
+
     const { data, setData, post, put, processing, errors } = useForm({
-        value: {
-            en: event?.value?.en ?? "",
-            gu: event?.value?.gu ?? "",
-        },
-        locale,
+        value: initialValue,
+        locale: currentLocale,
     });
 
-    // Keep form locale in sync with header toggle
+    /**
+     * Keep form locale synchronized with header language toggle.
+     */
     useEffect(() => {
-        setData("locale", locale);
-    }, [locale]);
+        setData("locale", currentLocale);
+    }, [currentLocale]);
 
+    /**
+     * Set value for the currently selected language.
+     */
     const setValue = (text) => {
         setData("value", {
             ...data.value,
-            [locale]: text,
+            [currentLocale]: text,
         });
     };
 
+    /**
+     * Submit form.
+     */
     const handleSubmit = (e) => {
         e.preventDefault();
+
+        // const options = {
+        //     onSuccess: () => {
+        //         toast.success(
+        //             isEdit
+        //                 ? tr("event_updated_success")
+        //                 : tr("event_added_success"),
+        //         );
+        //     },
+
+        //     onError: () => {
+        //         toast.error(tr("please_fix_errors"));
+        //     },
+        // };
 
         if (isEdit) {
             put(
                 route("role.event.update", {
-                    rolePrefix: rolePrefix,
+                    rolePrefix,
                     event: event.id,
                 }),
-                {
-                    onSuccess: () =>
-                        toast.success(
-                            isGu
-                                ? "પ્રસંગ સફળતાપૂર્વક અપડેટ થઈ!"
-                                : "Event updated successfully!",
-                        ),
-                    onError: () =>
-                        toast.error(
-                            isGu
-                                ? "કૃપા કરીને ભૂલો સુધારો."
-                                : "Please fix the errors.",
-                        ),
-                },
             );
         } else {
             post(
                 route("role.category.eventstore", {
-                    rolePrefix: rolePrefix,
+                    rolePrefix,
                 }),
-
-                {
-                    onSuccess: () =>
-                        toast.success(
-                            isGu
-                                ? "પ્રસંગ સફળતાપૂર્વક ઉમેરવામાં આવી!"
-                                : "Event added successfully!",
-                        ),
-
-                    onError: () =>
-                        toast.error(
-                            isGu
-                                ? "કૃપા કરીને ભૂલો સુધારો."
-                                : "Please fix the errors.",
-                        ),
-                },
             );
         }
     };
 
+    /**
+     * Dynamic page title.
+     */
+    const pageTitle = isEdit ? tr("edit_event") : tr("add_event");
+
     return (
         <React.Fragment>
-            <Head
-                title={
-                    isEdit
-                        ? isGu
-                            ? "પ્રસંગ સંપાદિત કરો"
-                            : "Edit Event"
-                        : isGu
-                          ? "પ્રસંગ ઉમેરો"
-                          : "Add Event"
-                }
-            />
+            <Head title={pageTitle} />
 
             <div className="page-content">
                 <Container fluid>
-                    <BreadCrumb
-                        title={
-                            isEdit
-                                ? isGu
-                                    ? "પ્રસંગ સંપાદિત કરો"
-                                    : "Edit Event"
-                                : isGu
-                                  ? "પ્રસંગ ઉમેરો"
-                                  : "Add Event"
-                        }
-                        pageTitle={isGu ? "પ્રસંગ" : "Events"}
-                    />
-
-                    {/* Locale indicator */}
-                        {/* <div className="mb-3">
-                            <span className="badge bg-primary">
-                                {isGu
-                                    ? "ફોર્મ: ગુજરાતી (GU)"
-                                    : "Form: English (EN)"}
-                            </span>
-
-                            <small className="text-muted ms-2">
-                                {isGu
-                                    ? "બીજી ભાષામાં ફેરફાર કરવા માટે હેડર ટૉગલ બદલો."
-                                    : "Switch language from the header toggle to edit the other translation."}
-                            </small>
-                        </div> */}
+                    <BreadCrumb title={pageTitle} pageTitle={tr("events")} />
 
                     <Row>
                         <Col lg={12}>
@@ -134,46 +163,35 @@ const EventForm = ({ event = null }) => {
                                 <Card.Header>
                                     <h5 className="card-title mb-0">
                                         {isEdit
-                                            ? isGu
-                                                ? "પ્રસંગ વિગતો"
-                                                : "Event Details"
-                                            : isGu
-                                              ? "નવું પ્રસંગ"
-                                              : "New Event"}
-
+                                            ? tr("event_details")
+                                            : tr("new_event")}
                                     </h5>
                                 </Card.Header>
 
                                 <Card.Body>
                                     <Form onSubmit={handleSubmit}>
-                                        {/* Type is fixed */}
+                                        {/* Type */}
                                         <Form.Group className="mb-3">
                                             <Form.Label>
-                                                {isGu ? "પ્રકાર" : "Type"}
+                                                {tr("type")}
                                             </Form.Label>
 
                                             <Form.Control
                                                 type="text"
-                                                value={
-                                                    isGu ? "પ્રસંગ" : "Event"
-                                                }
+                                                value={tr("event")}
                                                 disabled
                                                 readOnly
                                             />
 
                                             <Form.Text className="text-muted">
-                                                {isGu
-                                                    ? "પ્રકાર હંમેશા પ્રસંગ રહેશે."
-                                                    : "Type is always set to Event."}
+                                                {tr("event_type_help")}
                                             </Form.Text>
                                         </Form.Group>
 
-                                        {/* Event value - current locale */}
+                                        {/* Event value */}
                                         <Form.Group className="mb-3">
                                             <Form.Label htmlFor="event-value">
-                                                {isGu
-                                                    ? "પ્રસંગ નામ"
-                                                    : "Event Name"}{" "}
+                                                {tr("event_name")}{" "}
                                                 <span className="text-danger">
                                                     *
                                                 </span>
@@ -182,34 +200,37 @@ const EventForm = ({ event = null }) => {
                                             <Form.Control
                                                 type="text"
                                                 id="event-value"
-                                                eventholder={
-                                                    isGu
-                                                        ? "ઉદા. હોળી "
-                                                        : "e.g. Holi"
+                                                placeholder={tr(
+                                                    "event_name_placeholder",
+                                                )}
+                                                value={
+                                                    data.value?.[
+                                                        currentLocale
+                                                    ] ?? ""
                                                 }
-                                                value={data.value[locale] ?? ""}
                                                 onChange={(e) =>
                                                     setValue(e.target.value)
                                                 }
                                                 isInvalid={
                                                     !!errors[
-                                                        `value.${locale}`
+                                                        `value.${currentLocale}`
                                                     ] || !!errors.value
                                                 }
                                             />
 
                                             <Form.Control.Feedback type="invalid">
-                                                {errors[`value.${locale}`] ||
-                                                    errors.value}
+                                                {translateError(
+                                                    errors?.[
+                                                        `value.${currentLocale}`
+                                                    ] || errors?.value,
+                                                )}
                                             </Form.Control.Feedback>
                                         </Form.Group>
 
-                                        {/* Both languages reference */}
+                                        {/* All languages reference */}
                                         <div className="mb-3 p-2 rounded border bg-light">
                                             <small className="text-muted d-block mb-1">
-                                                {isGu
-                                                    ? "બંને ભાષાઓ (સંદર્ભ)"
-                                                    : "Both languages (reference)"}
+                                                {tr("both_languages_reference")}
                                             </small>
 
                                             <div
@@ -218,15 +239,17 @@ const EventForm = ({ event = null }) => {
                                                     fontSize: "13px",
                                                 }}
                                             >
-                                                <span>
-                                                    <strong>EN:</strong>{" "}
-                                                    {data.value.en || "—"}
-                                                </span>
-
-                                                <span>
-                                                    <strong>GU:</strong>{" "}
-                                                    {data.value.gu || "—"}
-                                                </span>
+                                                {languages.map((language) => (
+                                                    <span key={language.code}>
+                                                        <strong>
+                                                            {language.code.toUpperCase()}
+                                                            :
+                                                        </strong>{" "}
+                                                        {data.value?.[
+                                                            language.code
+                                                        ] || "—"}
+                                                    </span>
+                                                ))}
                                             </div>
                                         </div>
 
@@ -236,12 +259,12 @@ const EventForm = ({ event = null }) => {
                                                 href={route(
                                                     "role.category.eventlist",
                                                     {
-                                                        rolePrefix: rolePrefix,
+                                                        rolePrefix,
                                                     },
                                                 )}
                                                 className="btn btn-secondary me-2"
                                             >
-                                                {isGu ? "રદ કરો" : "Cancel"}
+                                                {tr("cancel")}
                                             </Link>
 
                                             <button
@@ -250,16 +273,10 @@ const EventForm = ({ event = null }) => {
                                                 disabled={processing}
                                             >
                                                 {processing
-                                                    ? isGu
-                                                        ? "સાચવી રહ્યા છીએ..."
-                                                        : "Saving..."
+                                                    ? tr("saving")
                                                     : isEdit
-                                                      ? isGu
-                                                          ? "અપડેટ કરો"
-                                                          : "Update"
-                                                      : isGu
-                                                        ? "સાચવો"
-                                                        : "Save"}
+                                                      ? tr("update")
+                                                      : tr("save")}
                                             </button>
                                         </div>
                                     </Form>

@@ -1,137 +1,143 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+
 import { Card, Col, Container, Dropdown, Row } from "react-bootstrap";
+
 import TableContainer from "../../../../Components/Common/TableContainer";
+
 import { Head, router, usePage } from "@inertiajs/react";
+
 import BreadCrumb from "../../../../Components/Common/BreadCrumb";
+
 import DeleteModal from "../../../../Components/Common/DeleteModal";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+
 import Layout from "../../../../Layouts";
+
 import { gujaratiNumber } from "../../../../utils/number";
+
 import AlphabetFilter from "../../../../Components/Common/AlphabetFilter";
+
 import { useAlphabetFilter } from "../../../../hooks/useAlphabetFilter";
+
 import { usePermission } from "../../../../hooks/usePermission";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Resolve translation object → string
-// Example:
-// { en: "Diwali", gu: "દિવાળી" } → Diwali / દિવાળી
+// Resolve multilingual DB value → current locale string
 // ─────────────────────────────────────────────────────────────────────────────
-const t = (v, locale = "en") => {
-    if (v == null) return "";
 
-    if (typeof v === "string") {
-        return v;
+const tValue = (value: any, locale: string): string => {
+    if (value == null) return "";
+
+    if (typeof value === "string") {
+        return value;
     }
 
-    if (typeof v === "object") {
-        return v[locale] ?? v.en ?? v.gu ?? Object.values(v)[0] ?? "";
+    if (typeof value === "object") {
+        return value[locale] ?? Object.values(value)[0] ?? "";
     }
 
-    return String(v);
+    return String(value);
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Centralized translation helper
+// Supports:
+// translate("delete_success")
+// translate("books_count", { count: 5 })
+// ─────────────────────────────────────────────────────────────────────────────
+
+const createTranslator = (translations: Record<string, any>) => {
+    return (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ): string => {
+        let text = translations?.[key] ?? key;
+
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(`:${name}`, String(value));
+        });
+
+        return text;
+    };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
-/**
- * @typedef {Object} BookItem
- * @property {number} id
- * @property {string|Object} type
- * @property {string|Object} value
- * @property {number} [pads_count]
- * @property {number} [created_by]
- * @property {string} created_at
- * @property {string} [updated_at]
- */
 
-/**
- * @typedef {Object} PaginatedBooks
- * @property {BookItem[]} data
- * @property {number} current_page
- * @property {number} last_page
- * @property {number} per_page
- * @property {number} total
- * @property {Array} links
- */
+type BookItem = {
+    id: number;
+    type?: string | Record<string, string>;
+    value?: string | Record<string, string>;
+    pads_count?: number;
+    created_by?: number;
+    created_at: string;
+    updated_at?: string;
+};
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Translations
-// ─────────────────────────────────────────────────────────────────────────────
-const translations = {
-    en: {
-        create: "Create Book",
-        title: "Books List",
-        pageTitle: "Books ",
-        searchPlaceholder: "Search by book name…",
-        noData: "No books found.",
-        deleteSuccess: "Book deleted successfully.",
-        bulkDeleteSuccess: "Books deleted successfully.",
-        bulkDeleteFail: "Failed to delete books.",
-        selectAtLeastOne: "Select at least one book.",
-        view: "View",
-        edit: "Edit",
-        delete: "Delete",
-        showing: "Showing",
-        of: "of",
-        results: "results",
-    },
-
-    gu: {
-        create: "પુસ્તક બનાવો",
-        title: "પુસ્તકોની યાદી",
-        pageTitle: "પુસ્તકો",
-        searchPlaceholder: "પુસ્તક શોધો…",
-        noData: "કોઈ પુસ્તક મળી નથી.",
-        deleteSuccess: "પુસ્તક સફળતાપૂર્વક કાઢી નાખવામાં આવી.",
-        bulkDeleteSuccess: "પુસ્તક સફળતાપૂર્વક કાઢી નાખવામાં આવી.",
-        bulkDeleteFail: "પુસ્તક કાઢી નાખવામાં નિષ્ફળતા.",
-        selectAtLeastOne: "ઓછામાં ઓછું એક પુસ્તક પસંદ કરો.",
-        view: "જુઓ",
-        edit: "ફેરફાર કરો",
-        delete: "કાઢી નાખો",
-        showing: "બતાવી રહ્યા છીએ",
-        of: "માંથી",
-        results: "પરિણામો",
-    },
+type PaginatedBooks = {
+    data: BookItem[];
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+    links: any[];
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
-const BookList = ({ books, filters }) => {
-    const page = usePage().props;
 
-    const locale = page.locale === "gu" ? "gu" : "en";
-    const isGu = locale === "gu";
-    const { auth } = usePage().props as any;
+const BookList = ({
+    books,
+    filters,
+}: {
+    books: PaginatedBooks;
+    filters?: {
+        search?: string;
+    };
+}) => {
+    const page = usePage().props as any;
+
+    const { auth, translations = {}, locale } = page;
+
+    const currentLocale = locale || "gu";
+
+    const translate = createTranslator(translations);
+
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
-    const tr = translations[locale];
+
     const { can } = usePermission();
+
     const canCreate = can("categories", "create");
+
     const canEdit = can("categories", "edit");
+
     const canDelete = can("categories", "delete");
 
-    const [data, setData] = useState(books?.data ?? []);
+    const [data, setData] = useState<BookItem[]>(books?.data ?? []);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Delete state
     // ─────────────────────────────────────────────────────────────────────────
-    const [item, setItem] = useState(null);
+
+    const [item, setItem] = useState<BookItem | null>(null);
+
     const [deleteModal, setDeleteModal] = useState(false);
+
     const [deleteModalMulti, setDeleteModalMulti] = useState(false);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Search
     // ─────────────────────────────────────────────────────────────────────────
+
     const [search, setSearch] = useState(filters?.search ?? "");
 
     const { selectedLetter, handleLetterFilter } = useAlphabetFilter(
         "role.category.booklist",
         {
-            rolePrefix: rolePrefix,
+            rolePrefix,
             search: search || undefined,
             per_page: 10,
         },
@@ -140,10 +146,15 @@ const BookList = ({ books, filters }) => {
     // ─────────────────────────────────────────────────────────────────────────
     // Selected IDs
     // ─────────────────────────────────────────────────────────────────────────
-    const [selectedIds, setSelectedIds] = useState([]);
+
+    const [selectedIds, setSelectedIds] = useState<number[]>([]);
+
     const [isMultiDeleteButton, setIsMultiDeleteButton] = useState(false);
 
+    // ─────────────────────────────────────────────────────────────────────────
     // Update local data when Inertia receives new props
+    // ─────────────────────────────────────────────────────────────────────────
+
     useEffect(() => {
         if (books?.data) {
             setData(books.data);
@@ -151,51 +162,36 @@ const BookList = ({ books, filters }) => {
     }, [books]);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Column labels
-    // ─────────────────────────────────────────────────────────────────────────
-    const labels = {
-        en: {
-            id: "ID",
-            value: "Book",
-            padsCount: "Total Pads",
-            createdAt: "Created At",
-            actions: "Actions",
-        },
-
-        gu: {
-            id: "ક્રમ",
-            type: "પ્રકાર",
-            value: "પુસ્તક",
-            padsCount: "કુલ પદો",
-            createdAt: "બનાવ્યાની તારીખ",
-            actions: "ક્રિયાઓ",
-        },
-    }[locale];
-
-    // ─────────────────────────────────────────────────────────────────────────
     // Edit
     // ─────────────────────────────────────────────────────────────────────────
-    const handleEdit = (row) => {
+
+    const handleEdit = (row: BookItem) => {
         router.visit(
             route("role.category.bookedit", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 book: row.id,
             }),
         );
     };
 
-    const handleRowClick = (row: Pad) => {
+    // ─────────────────────────────────────────────────────────────────────────
+    // Row click
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const handleRowClick = (row: BookItem) => {
         router.visit(
             route("role.categories.books.pads.show", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 book: row.id,
             }),
         );
     };
+
     // ─────────────────────────────────────────────────────────────────────────
     // Delete single
     // ─────────────────────────────────────────────────────────────────────────
-    const onClickDelete = (row) => {
+
+    const onClickDelete = (row: BookItem) => {
         setItem(row);
         setDeleteModal(true);
     };
@@ -203,14 +199,13 @@ const BookList = ({ books, filters }) => {
     // ─────────────────────────────────────────────────────────────────────────
     // Search
     // ─────────────────────────────────────────────────────────────────────────
-    const handleSearch = (value) => {
-        console.log("BOOK SEARCH:", value);
 
+    const handleSearch = (value: string) => {
         setSearch(value);
 
         router.get(
             route("role.category.booklist", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
             {
                 search: value || undefined,
@@ -226,8 +221,9 @@ const BookList = ({ books, filters }) => {
     // ─────────────────────────────────────────────────────────────────────────
     // Select all
     // ─────────────────────────────────────────────────────────────────────────
+
     const checkedAll = useCallback(
-        (checked) => {
+        (checked: boolean) => {
             if (checked) {
                 const allIds = data.map((row) => Number(row.id));
 
@@ -241,53 +237,71 @@ const BookList = ({ books, filters }) => {
         [data],
     );
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Delete single
+    // ─────────────────────────────────────────────────────────────────────────
+
     const handleDelete = (deleteRelatedPads: boolean = false) => {
         if (!item) return;
 
         router.delete(
             route("role.book.destroy", {
-                rolePrefix: rolePrefix,
-                book: item.id,
+                rolePrefix,
+                id: item.id,
             }),
             {
                 data: {
                     delete_related_pads: deleteRelatedPads ? 1 : 0,
                 },
+
                 preserveScroll: true,
+
                 onSuccess: () => {
                     setDeleteModal(false);
-                    toast.success(tr.deleteSuccess);
+                    setItem(null);
+
+                    // toast.success(translate("book_deleted_success"));
+                },
+
+                onError: () => {
+                    // toast.error(translate("book_delete_failed"));
                 },
             },
         );
     };
+
     // ─────────────────────────────────────────────────────────────────────────
     // Bulk delete
     // ─────────────────────────────────────────────────────────────────────────
+
     const deleteMultiple = (deleteRelatedPads: boolean = false) => {
         if (!selectedIds.length) {
-            toast.warning(tr.selectAtLeastOne);
+            // toast.warning(translate("select_at_least_one_book"));
             return;
         }
 
         router.post(
             route("role.books.bulk-destroy", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
             {
                 ids: selectedIds,
+
                 delete_related_pads: deleteRelatedPads ? 1 : 0,
             },
             {
                 preserveScroll: true,
+
                 onSuccess: () => {
-                    toast.success(tr.bulkDeleteSuccess);
+                    // toast.success(translate("books_deleted_success"));
+
                     setSelectedIds([]);
                     setIsMultiDeleteButton(false);
                     setDeleteModalMulti(false);
                 },
+
                 onError: () => {
-                    toast.error(tr.bulkDeleteFail);
+                    // toast.error(translate("books_delete_failed"));
                 },
             },
         );
@@ -296,6 +310,7 @@ const BookList = ({ books, filters }) => {
     // ─────────────────────────────────────────────────────────────────────────
     // Columns
     // ─────────────────────────────────────────────────────────────────────────
+
     const columns = useMemo(
         () => [
             // Checkbox
@@ -315,7 +330,7 @@ const BookList = ({ books, filters }) => {
                               />
                           ),
 
-                          cell: (cellProps) => {
+                          cell: (cellProps: any) => {
                               const id = Number(cellProps.row.original.id);
 
                               return (
@@ -348,34 +363,37 @@ const BookList = ({ books, filters }) => {
                       },
                   ]
                 : []),
+
             // ID
             {
-                header: labels.id,
+                header: translate("id"),
                 accessorKey: "id",
                 enableColumnFilter: false,
 
-                cell: (cellProps) => (
+                cell: (cellProps: any) => (
                     <span className="fw-medium text-primary">
-                        #{gujaratiNumber(cellProps.getValue(), locale)}
+                        #{gujaratiNumber(cellProps.getValue(), currentLocale)}
                     </span>
                 ),
             },
 
             // Book value
             {
-                header: labels.value,
+                header: translate("value"),
                 accessorKey: "value",
                 enableColumnFilter: false,
 
-                cell: (cellProps) => {
+                cell: (cellProps: any) => {
                     const raw = cellProps.row.original.value;
 
-                    const display = t(raw, locale);
+                    const display = tValue(raw, currentLocale);
 
                     return (
                         <span
                             className="text-muted"
-                            style={{ fontSize: "13px" }}
+                            style={{
+                                fontSize: "13px",
+                            }}
                         >
                             {display || "—"}
                         </span>
@@ -385,16 +403,16 @@ const BookList = ({ books, filters }) => {
 
             // Pads count
             {
-                header: labels.padsCount,
+                header: translate("total_pads"),
                 accessorKey: "pads_count",
                 enableColumnFilter: false,
 
-                cell: (cellProps) => {
+                cell: (cellProps: any) => {
                     const count = cellProps.row.original.pads_count ?? 0;
 
                     return (
                         <span className="badge bg-info-subtle text-info">
-                            {gujaratiNumber(count, locale)}
+                            {gujaratiNumber(count, currentLocale)}
                         </span>
                     );
                 },
@@ -402,21 +420,28 @@ const BookList = ({ books, filters }) => {
 
             // Created date
             {
-                header: labels.createdAt,
+                header: translate("created_at"),
                 accessorKey: "created_at",
                 enableColumnFilter: false,
 
                 cell: (cellProps: any) => {
-                    const formattedDate = new Date(cellProps.getValue())
+                    const value = cellProps.getValue();
+
+                    if (!value) {
+                        return <span className="text-muted">—</span>;
+                    }
+
+                    const formattedDate = new Date(value)
                         .toLocaleDateString("en-IN", {
                             day: "2-digit",
                             month: "2-digit",
                             year: "numeric",
                         })
                         .replace(/\//g, "-");
+
                     return (
                         <span className="text-muted">
-                            {gujaratiNumber(formattedDate, locale)}
+                            {gujaratiNumber(formattedDate, currentLocale)}
                         </span>
                     );
                 },
@@ -424,9 +449,9 @@ const BookList = ({ books, filters }) => {
 
             // Actions
             {
-                header: labels.actions,
+                header: translate("actions"),
 
-                cell: (cellProps) => {
+                cell: (cellProps: any) => {
                     const row = cellProps.row.original;
 
                     return (
@@ -443,17 +468,21 @@ const BookList = ({ books, filters }) => {
                                     {/* View */}
                                     <li>
                                         <Dropdown.Item
-                                            href={route(
-                                                "role.categories.books.pads.show",
-                                                {
-                                                    rolePrefix: rolePrefix,
-                                                    book: cellProps.row.original
-                                                        .id,
-                                                },
-                                            )}
+                                            onClick={() =>
+                                                router.visit(
+                                                    route(
+                                                        "role.categories.books.pads.show",
+                                                        {
+                                                            rolePrefix,
+                                                            book: row.id,
+                                                        },
+                                                    ),
+                                                )
+                                            }
                                         >
                                             <i className="ri-eye-fill align-bottom me-2 text-muted"></i>
-                                            {tr.view}
+
+                                            {translate("view")}
                                         </Dropdown.Item>
                                     </li>
 
@@ -464,10 +493,12 @@ const BookList = ({ books, filters }) => {
                                                 onClick={() => handleEdit(row)}
                                             >
                                                 <i className="ri-pencil-fill align-bottom me-2 text-muted"></i>
-                                                {tr.edit}
+
+                                                {translate("edit")}
                                             </Dropdown.Item>
                                         </li>
                                     )}
+
                                     {/* Delete */}
                                     {canDelete && (
                                         <li>
@@ -478,7 +509,8 @@ const BookList = ({ books, filters }) => {
                                                 }
                                             >
                                                 <i className="ri-delete-bin-fill align-bottom me-2 text-muted"></i>
-                                                {tr.delete}
+
+                                                {translate("delete")}
                                             </Dropdown.Item>
                                         </li>
                                     )}
@@ -489,28 +521,41 @@ const BookList = ({ books, filters }) => {
                 },
             },
         ],
-        [labels, locale, tr, checkedAll, selectedIds, data, canDelete, canEdit],
+        [
+            currentLocale,
+            translate,
+            checkedAll,
+            selectedIds,
+            data,
+            canDelete,
+            canEdit,
+            rolePrefix,
+        ],
     );
 
     // ─────────────────────────────────────────────────────────────────────────
     // Render
     // ─────────────────────────────────────────────────────────────────────────
+
     return (
         <React.Fragment>
-            <Head title={tr.title} />
+            <Head title={translate("books_list_title")} />
 
             <div className="page-content">
                 <Container fluid>
-                    <BreadCrumb title={tr.title} pageTitle={tr.pageTitle} />
+                    <BreadCrumb
+                        title={translate("books_list_title")}
+                        pageTitle={translate("books_page_title")}
+                    />
 
                     {/* Single Delete Modal */}
                     <DeleteModal
                         show={deleteModal}
                         onDeleteClick={handleDelete}
                         onCloseClick={() => setDeleteModal(false)}
-                        showPadsOption={true} // ← enable checkbox
-                        isGu={isGu}
+                        showPadsOption={true}
                     />
+
                     {/* Bulk Delete Modal */}
                     <DeleteModal
                         show={deleteModalMulti}
@@ -518,8 +563,7 @@ const BookList = ({ books, filters }) => {
                             deleteMultiple(deleteRelatedPads);
                         }}
                         onCloseClick={() => setDeleteModalMulti(false)}
-                        showPadsOption={true} // ← enable checkbox
-                        isGu={isGu}
+                        showPadsOption={true}
                     />
 
                     <Row>
@@ -529,7 +573,7 @@ const BookList = ({ books, filters }) => {
                                 <Card.Header className="border-0">
                                     <div className="d-flex align-items-center">
                                         <h5 className="card-title mb-0 flex-grow-1">
-                                            {isGu ? "પુસ્તકો" : "Books"}
+                                            {translate("books")}
                                         </h5>
 
                                         <div className="flex-shrink-0">
@@ -543,15 +587,16 @@ const BookList = ({ books, filters }) => {
                                                                 route(
                                                                     "role.category.bookform",
                                                                     {
-                                                                        rolePrefix:
-                                                                            rolePrefix,
+                                                                        rolePrefix,
                                                                     },
                                                                 ),
                                                             )
                                                         }
                                                     >
                                                         <i className="ri-add-line align-bottom"></i>{" "}
-                                                        {tr.create}
+                                                        {translate(
+                                                            "create_book",
+                                                        )}
                                                     </button>
                                                 )}
 
@@ -575,12 +620,17 @@ const BookList = ({ books, filters }) => {
                                 </Card.Header>
 
                                 <Card.Body className="pt-0">
+                                    {/* Search */}
                                     <div className="d-flex justify-content-end mb-3">
                                         <input
                                             type="search"
                                             className="form-control"
-                                            style={{ maxWidth: 280 }}
-                                            placeholder={tr.searchPlaceholder}
+                                            style={{
+                                                maxWidth: 280,
+                                            }}
+                                            placeholder={translate(
+                                                "search_book_placeholder",
+                                            )}
                                             value={search}
                                             onChange={(e) =>
                                                 handleSearch(e.target.value)
@@ -588,6 +638,7 @@ const BookList = ({ books, filters }) => {
                                         />
                                     </div>
 
+                                    {/* Alphabet Filter */}
                                     <AlphabetFilter
                                         selectedLetter={selectedLetter}
                                         onSelect={handleLetterFilter}
@@ -605,9 +656,9 @@ const BookList = ({ books, filters }) => {
                                                 tableClass="align-middle table-nowrap mb-0"
                                                 theadClass=""
                                                 thClass=""
-                                                SearchPlaceholder={
-                                                    tr.searchPlaceholder
-                                                }
+                                                SearchPlaceholder={translate(
+                                                    "search_book_placeholder",
+                                                )}
                                                 onSearch={handleSearch}
                                                 onRowClick={handleRowClick}
                                             />
@@ -616,15 +667,25 @@ const BookList = ({ books, filters }) => {
                                             {books.last_page > 1 && (
                                                 <div className="d-flex justify-content-between align-items-center mt-2">
                                                     <small className="text-muted">
-                                                        {tr.showing}{" "}
-                                                        {data.length} {tr.of}{" "}
-                                                        {books.total}{" "}
-                                                        {tr.results}
+                                                        {translate("showing")}{" "}
+                                                        {gujaratiNumber(
+                                                            data.length,
+                                                            currentLocale,
+                                                        )}{" "}
+                                                        {translate("of")}{" "}
+                                                        {gujaratiNumber(
+                                                            books.total,
+                                                            currentLocale,
+                                                        )}{" "}
+                                                        {translate("results")}
                                                     </small>
 
                                                     <ul className="pagination pagination-sm mb-0">
                                                         {books.links.map(
-                                                            (link, idx) => (
+                                                            (
+                                                                link: any,
+                                                                idx: number,
+                                                            ) => (
                                                                 <li
                                                                     key={idx}
                                                                     className={`page-item ${
@@ -662,15 +723,10 @@ const BookList = ({ books, filters }) => {
                                     ) : (
                                         <div className="text-center py-5">
                                             <div className="text-muted">
-                                                {tr.noData}
+                                                {translate("no_books_found")}
                                             </div>
                                         </div>
                                     )}
-
-                                    <ToastContainer
-                                        closeButton={false}
-                                        limit={1}
-                                    />
                                 </Card.Body>
                             </Card>
                         </Col>
@@ -681,6 +737,6 @@ const BookList = ({ books, filters }) => {
     );
 };
 
-BookList.layout = (page) => <Layout children={page} />;
+BookList.layout = (page: any) => <Layout children={page} />;
 
 export default BookList;

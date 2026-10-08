@@ -1,218 +1,212 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+
 import { Card, Col, Container, Dropdown, Row } from "react-bootstrap";
+
 import TableContainer from "../../../../Components/Common/TableContainer";
+
 import { Head, router, usePage } from "@inertiajs/react";
+
 import BreadCrumb from "../../../../Components/Common/BreadCrumb";
+
 import DeleteModal from "../../../../Components/Common/DeleteModal";
+
 import { toast, ToastContainer } from "react-toastify";
+
 import "react-toastify/dist/ReactToastify.css";
+
 import Layout from "../../../../Layouts";
+
 import { gujaratiNumber } from "../../../../utils/number";
+
 import { useAlphabetFilter } from "../../../../hooks/useAlphabetFilter";
+
 import AlphabetFilter from "../../../../Components/Common/AlphabetFilter";
+
 import { usePermission } from "../../../../hooks/usePermission";
-import { categories } from "../../../../common/data/jobLanding";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Resolve translation object → string
-// Example:
-// { en: "Diwali", gu: "દિવાળી" } → Diwali / દિવાળી
-// ─────────────────────────────────────────────────────────────────────────────
-const t = (v, locale = "en") => {
-    if (v == null) return "";
-
-    if (typeof v === "string") {
-        return v;
-    }
-
-    if (typeof v === "object") {
-        return v[locale] ?? v.en ?? v.gu ?? Object.values(v)[0] ?? "";
-    }
-
-    return String(v);
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────    ────────────────────────────────────
-/**
- * @typedef {Object} EventItem
- * @property {number} id
- * @property {string|Object} type
- * @property {string|Object} value
- * @property {number} [pads_count]
- * @property {number} [created_by]
- * @property {string} created_at
- * @property {string} [updated_at]
- */
 
 /**
- * @typedef {Object} PaginatedEvents
- * @property {EventItem[]} data
- * @property {number} current_page
- * @property {number} last_page
- * @property {number} per_page
- * @property {number} total
- * @property {Array} links
+ * Resolve multilingual database value.
+ *
+ * Example:
+ * {
+ *     en: "Diwali",
+ *     gu: "દિવાળી"
+ * }
+ *
+ * Returns the value for the current locale.
  */
+const tValue = (value, locale) => {
+    if (value == null) return "";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Translations
-// ─────────────────────────────────────────────────────────────────────────────
-const translations = {
-    en: {
-        create: "Create Event",
-        title: "EVENTS LIST",
-        pageTitle: "Events",
-        searchPlaceholder: "Search by event name…",
-        noData: "No events found.",
-        deleteSuccess: "Event deleted successfully.",
-        bulkDeleteSuccess: "Events deleted successfully.",
-        bulkDeleteFail: "Failed to delete events.",
-        selectAtLeastOne: "Select at least one event.",
-        view: "View",
-        edit: "Edit",
-        delete: "Delete",
-        showing: "Showing",
-        of: "of",
-        results: "results",
-    },
+    if (typeof value === "string") {
+        return value;
+    }
 
-    gu: {
-        create: "પ્રસંગ બનાવો",
-        title: "પ્રસંગની યાદી",
-        pageTitle: "પ્રસંગ",
-        searchPlaceholder: "પ્રસંગ શોધો…",
-        noData: "કોઈ પ્રસંગ મળી નથી.",
-        deleteSuccess: "પ્રસંગ સફળતાપૂર્વક કાઢી નાખવામાં આવી.",
-        bulkDeleteSuccess: "પ્રસંગ સફળતાપૂર્વક કાઢી નાખવામાં આવી.",
-        bulkDeleteFail: "પ્રસંગ કાઢી નાખવામાં નિષ્ફળતા.",
-        selectAtLeastOne: "ઓછામાં ઓછું એક પ્રસંગ પસંદ કરો.",
-        view: "જુઓ",
-        edit: "ફેરફાર કરો",
-        delete: "કાઢી નાખો",
-        showing: "બતાવી રહ્યા છીએ",
-        of: "માંથી",
-        results: "પરિણામો",
-    },
+    if (typeof value === "object") {
+        return (
+            value[locale] ??
+            Object.values(value)[0] ??
+            ""
+        );
+    }
+
+    return String(value);
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Component
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Centralized translation helper.
+ */
+const createTranslator = (translations) => {
+    return (
+        key,
+        replacements = {}
+    ) => {
+        let text = translations?.[key] ?? key;
+
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(`:${name}`, String(value));
+        });
+
+        return text;
+    };
+};
+
 const EventList = ({ events, filters }) => {
     const page = usePage().props;
-    const { auth } = usePage().props as any;
-    const rolePrefix = auth?.user?.role?.name
-        ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
-        : "admin";
-    const locale = page.locale === "gu" ? "gu" : "en";
 
-    const isGu = locale === "gu";
-    const tr = translations[locale];
+    const {
+        auth,
+        translations = {},
+        locale,
+    } = page;
+
+    const currentLocale = locale || "gu";
+
+    const tr = useMemo(
+        () => createTranslator(translations),
+        [translations]
+    );
+
+    /**
+     * Dynamic role prefix.
+     */
+    const rolePrefix = auth?.user?.role?.name
+        ? auth.user.role.name
+              .toLowerCase()
+              .replace(/\s+/g, "-")
+        : "admin";
+
+    /**
+     * Permissions.
+     */
     const { can } = usePermission();
+
     const canCreate = can("categories", "create");
     const canEdit = can("categories", "edit");
     const canDelete = can("categories", "delete");
 
+    /**
+     * Local table data.
+     */
     const [data, setData] = useState(events?.data ?? []);
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Delete state
-    // ─────────────────────────────────────────────────────────────────────────
+    /**
+     * Delete state.
+     */
     const [item, setItem] = useState(null);
     const [deleteModal, setDeleteModal] = useState(false);
-    const [deleteModalMulti, setDeleteModalMulti] = useState(false);
+    const [deleteModalMulti, setDeleteModalMulti] =
+        useState(false);
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Search
-    // ─────────────────────────────────────────────────────────────────────────
-    const [search, setSearch] = useState(filters?.search ?? "");
+    /**
+     * Search.
+     */
+    const [search, setSearch] = useState(
+        filters?.search ?? ""
+    );
 
-    const { selectedLetter, handleLetterFilter } = useAlphabetFilter(
+    const {
+        selectedLetter,
+        handleLetterFilter,
+    } = useAlphabetFilter(
         "role.category.eventlist",
         {
-            rolePrefix: rolePrefix,
+            rolePrefix,
             search: search || undefined,
             per_page: 10,
-        },
+        }
     );
-    // ─────────────────────────────────────────────────────────────────────────
-    // Selected IDs
-    // ─────────────────────────────────────────────────────────────────────────
-    const [selectedIds, setSelectedIds] = useState([]);
-    const [isMultiDeleteButton, setIsMultiDeleteButton] = useState(false);
 
-    // Update local data when Inertia receives new props
+    /**
+     * Selected IDs.
+     */
+    const [selectedIds, setSelectedIds] = useState([]);
+    const [isMultiDeleteButton, setIsMultiDeleteButton] =
+        useState(false);
+
+    /**
+     * Update local data when Inertia receives new props.
+     */
     useEffect(() => {
         if (events?.data) {
             setData(events.data);
         }
     }, [events]);
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Column labels
-    // ─────────────────────────────────────────────────────────────────────────
+    /**
+     * Column labels.
+     *
+     * All labels now come from centralized translations.
+     */
     const labels = {
-        en: {
-            id: "ID",
-            value: "Event",
-            padsCount: "Total Pads",
-            createdAt: "Created At",
-            actions: "Actions",
-        },
+        id: tr("id"),
+        value: tr("event"),
+        padsCount: tr("total_pads"),
+        createdAt: tr("created_at"),
+        actions: tr("actions"),
+    };
 
-        gu: {
-            id: "ક્રમ",
-            type: "પ્રકાર",
-            value: "પ્રસંગ",
-            padsCount: "કુલ પદો",
-            createdAt: "બનાવ્યાની તારીખ",
-            actions: "ક્રિયાઓ",
-        },
-    }[locale];
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Edit
-    // ─────────────────────────────────────────────────────────────────────────
-    const handleEdit = (row: Event) => {
+    /**
+     * Edit event.
+     */
+    const handleEdit = (row) => {
         router.visit(
             route("role.event.edit", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 event: row.id,
-            }),
+            })
         );
     };
 
-    // const handleRowClick = (row: Pad) => {
-    //     router.visit(route("admin.events.pads.show", row.id));
-    // };
-    const handleRowClick = (row: Event) => {
+    /**
+     * Open event pads.
+     */
+    const handleRowClick = (row) => {
         router.visit(
             route("role.events.pads.show", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 event: row.id,
-            }),
+            })
         );
     };
-    // ─────────────────────────────────────────────────────────────────────────
-    // Delete single
-    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Open single delete modal.
+     */
     const onClickDelete = (row) => {
         setItem(row);
         setDeleteModal(true);
     };
-    // ─────────────────────────────────────────────────────────────────────────
-    // Search
-    // ─────────────────────────────────────────────────────────────────────────
-    const handleSearch = (value) => {
-        console.log("EVENT SEARCH:", value);
 
+    /**
+     * Search.
+     */
+    const handleSearch = (value) => {
         setSearch(value);
 
         router.get(
             route("role.category.eventlist", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
             {
                 search: value || undefined,
@@ -221,82 +215,126 @@ const EventList = ({ events, filters }) => {
                 preserveState: true,
                 preserveScroll: true,
                 replace: true,
-            },
+            }
         );
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Select all
-    // ─────────────────────────────────────────────────────────────────────────
+    /**
+     * Select / unselect all.
+     */
     const checkedAll = useCallback(
         (checked) => {
             if (checked) {
-                const allIds = data.map((row) => Number(row.id));
+                const allIds = data.map((row) =>
+                    Number(row.id)
+                );
 
                 setSelectedIds(allIds);
-                setIsMultiDeleteButton(allIds.length > 0);
+                setIsMultiDeleteButton(
+                    allIds.length > 0
+                );
             } else {
                 setSelectedIds([]);
                 setIsMultiDeleteButton(false);
             }
         },
-        [data],
+        [data]
     );
 
-    const handleDelete = (deleteRelatedPads: boolean = false) => {
+    /**
+     * Delete single event.
+     */
+    const handleDelete = (
+        deleteRelatedPads = false
+    ) => {
         if (!item) return;
 
         router.delete(
             route("role.event.destroy", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 id: item.id,
             }),
             {
                 data: {
-                    delete_related_pads: deleteRelatedPads ? 1 : 0,
+                    delete_related_pads:
+                        deleteRelatedPads ? 1 : 0,
                 },
+
                 preserveScroll: true,
+
                 onSuccess: () => {
                     setDeleteModal(false);
-                    toast.success(tr.deleteSuccess);
+                    setItem(null);
+
+                    // toast.success(
+                    //     tr("event_deleted_success")
+                    // );
                 },
-            },
+
+                onError: () => {
+                    // toast.error(
+                    //     tr("event_delete_failed")
+                    // );
+                },
+            }
         );
     };
 
-    const deleteMultiple = (deleteRelatedPads = false) => {
+    /**
+     * Delete multiple events.
+     */
+    const deleteMultiple = (
+        deleteRelatedPads = false
+    ) => {
         if (!selectedIds.length) {
-            toast.warning(tr.selectAtLeastOne);
+            toast.warning(
+                tr("select_at_least_one_event")
+            );
             return;
         }
 
         router.post(
-            route("role.events.bulk-destroy", { rolePrefix }), // ← fixed name
+            route("role.events.bulk-destroy", {
+                rolePrefix,
+            }),
             {
                 ids: selectedIds,
-                delete_related_pads: deleteRelatedPads ? 1 : 0,
+
+                delete_related_pads:
+                    deleteRelatedPads ? 1 : 0,
             },
             {
                 preserveScroll: true,
+
                 onSuccess: () => {
-                    toast.success(tr.bulkDeleteSuccess);
+                    // toast.success(
+                    //     tr("events_deleted_success")
+                    // );
+
                     setSelectedIds([]);
                     setIsMultiDeleteButton(false);
                     setDeleteModalMulti(false);
                 },
-                onError: () => toast.error(tr.bulkDeleteFail),
-            },
+
+                onError: () => {
+                    // toast.error(
+                    //     tr("events_delete_failed")
+                    // );
+                },
+            }
         );
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Columns
-    // ─────────────────────────────────────────────────────────────────────────
+    /**
+     * Table columns.
+     */
     const columns = useMemo(
         () => [
+            /**
+             * Checkbox column.
+             */
             ...(canDelete
                 ? [
-                      // Checkbox
                       {
                           header: (
                               <input
@@ -305,46 +343,72 @@ const EventList = ({ events, filters }) => {
                                   className="form-check-input"
                                   checked={
                                       data.length > 0 &&
-                                      selectedIds.length === data.length
+                                      selectedIds.length ===
+                                          data.length
                                   }
-                                  onChange={(e) => checkedAll(e.target.checked)}
+                                  onChange={(e) =>
+                                      checkedAll(
+                                          e.target.checked
+                                      )
+                                  }
                               />
                           ),
 
                           cell: (cellProps) => {
-                              const id = Number(cellProps.row.original.id);
+                              const id = Number(
+                                  cellProps.row.original.id
+                              );
 
                               return (
                                   <input
                                       type="checkbox"
                                       className="form-check-input"
                                       value={id}
-                                      checked={selectedIds.includes(id)}
-                                      onClick={(e) => e.stopPropagation()}
+                                      checked={selectedIds.includes(
+                                          id
+                                      )}
+                                      onClick={(e) =>
+                                          e.stopPropagation()
+                                      }
                                       onChange={(e) => {
-                                          setSelectedIds((prev) => {
-                                              const updated = e.target.checked
-                                                  ? [...prev, id]
-                                                  : prev.filter(
-                                                        (x) => x !== id,
-                                                    );
+                                          setSelectedIds(
+                                              (prev) => {
+                                                  const updated =
+                                                      e.target
+                                                          .checked
+                                                          ? [
+                                                                ...prev,
+                                                                id,
+                                                            ]
+                                                          : prev.filter(
+                                                                (
+                                                                    x
+                                                                ) =>
+                                                                    x !==
+                                                                    id
+                                                            );
 
-                                              setIsMultiDeleteButton(
-                                                  updated.length > 0,
-                                              );
+                                                  setIsMultiDeleteButton(
+                                                      updated.length >
+                                                          0
+                                                  );
 
-                                              return updated;
-                                          });
+                                                  return updated;
+                                              }
+                                          );
                                       }}
                                   />
                               );
                           },
+
                           id: "#",
                       },
                   ]
                 : []),
 
-            // ID
+            /**
+             * ID.
+             */
             {
                 header: labels.id,
                 accessorKey: "id",
@@ -352,26 +416,38 @@ const EventList = ({ events, filters }) => {
 
                 cell: (cellProps) => (
                     <span className="fw-medium text-primary">
-                        #{gujaratiNumber(cellProps.getValue(), locale)}
+                        #
+                        {gujaratiNumber(
+                            cellProps.getValue(),
+                            currentLocale
+                        )}
                     </span>
                 ),
             },
 
-            // Event value
+            /**
+             * Event value.
+             */
             {
                 header: labels.value,
                 accessorKey: "value",
                 enableColumnFilter: false,
 
                 cell: (cellProps) => {
-                    const raw = cellProps.row.original.value;
+                    const raw =
+                        cellProps.row.original.value;
 
-                    const display = t(raw, locale);
+                    const display = tValue(
+                        raw,
+                        currentLocale
+                    );
 
                     return (
                         <span
                             className="text-muted"
-                            style={{ fontSize: "13px" }}
+                            style={{
+                                fontSize: "13px",
+                            }}
                         >
                             {display || "—"}
                         </span>
@@ -379,54 +455,91 @@ const EventList = ({ events, filters }) => {
                 },
             },
 
-            // Pads count
+            /**
+             * Pads count.
+             */
             {
                 header: labels.padsCount,
                 accessorKey: "pads_count",
                 enableColumnFilter: false,
 
                 cell: (cellProps) => {
-                    const count = cellProps.row.original.pads_count ?? 0;
+                    const count =
+                        cellProps.row.original
+                            .pads_count ?? 0;
 
                     return (
                         <span className="badge bg-info-subtle text-info">
-                            {gujaratiNumber(count, locale)}
+                            {gujaratiNumber(
+                                count,
+                                currentLocale
+                            )}
                         </span>
                     );
                 },
             },
 
-            // Created date
+            /**
+             * Created date.
+             */
             {
                 header: labels.createdAt,
                 accessorKey: "created_at",
                 enableColumnFilter: false,
 
-                cell: (cellProps: any) => {
-                    const formattedDate = new Date(cellProps.getValue())
-                        .toLocaleDateString("en-IN", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            year: "numeric",
-                        })
-                        .replace(/\//g, "-");
+                cell: (cellProps) => {
+                    const value =
+                        cellProps.getValue();
+
+                    if (!value) {
+                        return (
+                            <span className="text-muted">
+                                —
+                            </span>
+                        );
+                    }
+
+                    const formattedDate =
+                        new Date(
+                            value
+                        )
+                            .toLocaleDateString(
+                                "en-IN",
+                                {
+                                    day: "2-digit",
+                                    month: "2-digit",
+                                    year: "numeric",
+                                }
+                            )
+                            .replace(/\//g, "-");
+
                     return (
                         <span className="text-muted">
-                            {gujaratiNumber(formattedDate, locale)}
+                            {gujaratiNumber(
+                                formattedDate,
+                                currentLocale
+                            )}
                         </span>
                     );
                 },
             },
 
-            // Actions
+            /**
+             * Actions.
+             */
             {
                 header: labels.actions,
 
                 cell: (cellProps) => {
-                    const row = cellProps.row.original;
+                    const row =
+                        cellProps.row.original;
 
                     return (
-                        <div onClick={(e) => e.stopPropagation()}>
+                        <div
+                            onClick={(e) =>
+                                e.stopPropagation()
+                            }
+                        >
                             <Dropdown>
                                 <Dropdown.Toggle
                                     as="a"
@@ -439,17 +552,21 @@ const EventList = ({ events, filters }) => {
                                     {/* View */}
                                     <li>
                                         <Dropdown.Item
-                                            href={route(
-                                                "role.events.pads.show",
-                                                {
-                                                    rolePrefix: rolePrefix,
-                                                    event: cellProps.row
-                                                        .original.id,
-                                                },
-                                            )}
+                                            onClick={() =>
+                                                router.visit(
+                                                    route(
+                                                        "role.events.pads.show",
+                                                        {
+                                                            rolePrefix,
+                                                            event: row.id,
+                                                        }
+                                                    )
+                                                )
+                                            }
                                         >
                                             <i className="ri-eye-fill align-bottom me-2 text-muted"></i>
-                                            {tr.view}
+
+                                            {tr("view")}
                                         </Dropdown.Item>
                                     </li>
 
@@ -457,10 +574,15 @@ const EventList = ({ events, filters }) => {
                                     {canEdit && (
                                         <li>
                                             <Dropdown.Item
-                                                onClick={() => handleEdit(row)}
+                                                onClick={() =>
+                                                    handleEdit(
+                                                        row
+                                                    )
+                                                }
                                             >
                                                 <i className="ri-pencil-fill align-bottom me-2 text-muted"></i>
-                                                {tr.edit}
+
+                                                {tr("edit")}
                                             </Dropdown.Item>
                                         </li>
                                     )}
@@ -471,11 +593,14 @@ const EventList = ({ events, filters }) => {
                                             <Dropdown.Item
                                                 className="remove-item-btn"
                                                 onClick={() =>
-                                                    onClickDelete(row)
+                                                    onClickDelete(
+                                                        row
+                                                    )
                                                 }
                                             >
                                                 <i className="ri-delete-bin-fill align-bottom me-2 text-muted"></i>
-                                                {tr.delete}
+
+                                                {tr("delete")}
                                             </Dropdown.Item>
                                         </li>
                                     )}
@@ -486,37 +611,54 @@ const EventList = ({ events, filters }) => {
                 },
             },
         ],
-        [labels, locale, tr, checkedAll, selectedIds, data, canDelete, canEdit],
+        [
+            labels,
+            currentLocale,
+            tr,
+            checkedAll,
+            selectedIds,
+            data,
+            canDelete,
+            canEdit,
+            rolePrefix,
+        ]
     );
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Render
-    // ─────────────────────────────────────────────────────────────────────────
     return (
         <React.Fragment>
-            <Head title={tr.title} />
+            <Head title={tr("events_list_title")} />
 
             <div className="page-content">
                 <Container fluid>
-                    <BreadCrumb title={tr.title} pageTitle={tr.pageTitle} />
+                    <BreadCrumb
+                        title={tr("events_list_title")}
+                        pageTitle={tr("events")}
+                    />
 
                     {/* Single Delete Modal */}
                     <DeleteModal
                         show={deleteModal}
                         onDeleteClick={handleDelete}
-                        onCloseClick={() => setDeleteModal(false)}
-                        showPadsOption={true} // ← enable checkbox
-                        isGu={isGu}
+                        onCloseClick={() =>
+                            setDeleteModal(false)
+                        }
+                        showPadsOption={true}
                     />
+
                     {/* Bulk Delete Modal */}
                     <DeleteModal
                         show={deleteModalMulti}
-                        onDeleteClick={(deleteRelatedPads) => {
-                            deleteMultiple(deleteRelatedPads);
+                        onDeleteClick={(
+                            deleteRelatedPads
+                        ) => {
+                            deleteMultiple(
+                                deleteRelatedPads
+                            );
                         }}
-                        onCloseClick={() => setDeleteModalMulti(false)}
-                        showPadsOption={true} // ← enable checkbox
-                        isGu={isGu}
+                        onCloseClick={() =>
+                            setDeleteModalMulti(false)
+                        }
+                        showPadsOption={true}
                     />
 
                     <Row>
@@ -526,7 +668,7 @@ const EventList = ({ events, filters }) => {
                                 <Card.Header className="border-0">
                                     <div className="d-flex align-items-center">
                                         <h5 className="card-title mb-0 flex-grow-1">
-                                            {isGu ? "પ્રસંગો" : "Events"}
+                                            {tr("events")}
                                         </h5>
 
                                         <div className="flex-shrink-0">
@@ -540,15 +682,16 @@ const EventList = ({ events, filters }) => {
                                                                 route(
                                                                     "role.category.eventform",
                                                                     {
-                                                                        rolePrefix:
-                                                                            rolePrefix,
-                                                                    },
-                                                                ),
+                                                                        rolePrefix,
+                                                                    }
+                                                                )
                                                             )
                                                         }
                                                     >
                                                         <i className="ri-add-line align-bottom"></i>{" "}
-                                                        {tr.create}
+                                                        {tr(
+                                                            "create_event"
+                                                        )}
                                                     </button>
                                                 )}
 
@@ -559,7 +702,7 @@ const EventList = ({ events, filters }) => {
                                                             className="btn btn-soft-danger"
                                                             onClick={() =>
                                                                 setDeleteModalMulti(
-                                                                    true,
+                                                                    true
                                                                 )
                                                             }
                                                         >
@@ -572,59 +715,98 @@ const EventList = ({ events, filters }) => {
                                 </Card.Header>
 
                                 <Card.Body className="pt-0">
-                                    {/*  Search Box */}
+                                    {/* Search */}
                                     <div className="d-flex justify-content-end mb-3">
                                         <input
                                             type="search"
                                             className="form-control"
-                                            style={{ maxWidth: 280 }}
-                                            placeholder={tr.searchPlaceholder}
+                                            style={{
+                                                maxWidth: 280,
+                                            }}
+                                            placeholder={tr(
+                                                "search_event_placeholder"
+                                            )}
                                             value={search}
                                             onChange={(e) =>
-                                                handleSearch(e.target.value)
+                                                handleSearch(
+                                                    e.target.value
+                                                )
                                             }
                                         />
                                     </div>
 
+                                    {/* Alphabet Filter */}
                                     <AlphabetFilter
-                                        selectedLetter={selectedLetter}
-                                        onSelect={handleLetterFilter}
+                                        selectedLetter={
+                                            selectedLetter
+                                        }
+                                        onSelect={
+                                            handleLetterFilter
+                                        }
                                     />
 
                                     {/* Table */}
-                                    {data && data.length > 0 ? (
+                                    {data &&
+                                    data.length > 0 ? (
                                         <>
                                             <TableContainer
                                                 columns={columns}
                                                 data={data}
-                                                isGlobalFilter={false}
-                                                customPageSize={10}
+                                                isGlobalFilter={
+                                                    false
+                                                }
+                                                customPageSize={
+                                                    10
+                                                }
                                                 divClass="table-responsive table-card mb-3"
                                                 tableClass="align-middle table-nowrap mb-0"
                                                 theadClass=""
                                                 thClass=""
-                                                SearchPlaceholder={
-                                                    tr.searchPlaceholder
+                                                SearchPlaceholder={tr(
+                                                    "search_event_placeholder"
+                                                )}
+                                                onSearch={
+                                                    handleSearch
                                                 }
-                                                onSearch={handleSearch}
-                                                onRowClick={handleRowClick}
+                                                onRowClick={
+                                                    handleRowClick
+                                                }
                                             />
 
                                             {/* Pagination */}
-                                            {events.last_page > 1 && (
+                                            {events.last_page >
+                                                1 && (
                                                 <div className="d-flex justify-content-between align-items-center mt-2">
                                                     <small className="text-muted">
-                                                        {tr.showing}{" "}
-                                                        {data.length} {tr.of}{" "}
-                                                        {events.total}{" "}
-                                                        {tr.results}
+                                                        {tr(
+                                                            "showing"
+                                                        )}{" "}
+                                                        {gujaratiNumber(
+                                                            data.length,
+                                                            currentLocale
+                                                        )}{" "}
+                                                        {tr(
+                                                            "of"
+                                                        )}{" "}
+                                                        {gujaratiNumber(
+                                                            events.total,
+                                                            currentLocale
+                                                        )}{" "}
+                                                        {tr(
+                                                            "results"
+                                                        )}
                                                     </small>
 
                                                     <ul className="pagination pagination-sm mb-0">
                                                         {events.links.map(
-                                                            (link, idx) => (
+                                                            (
+                                                                link,
+                                                                idx
+                                                            ) => (
                                                                 <li
-                                                                    key={idx}
+                                                                    key={
+                                                                        idx
+                                                                    }
                                                                     className={`page-item ${
                                                                         link.active
                                                                             ? "active"
@@ -643,7 +825,7 @@ const EventList = ({ events, filters }) => {
                                                                                 link.url,
                                                                                 {
                                                                                     preserveState: true,
-                                                                                },
+                                                                                }
                                                                             )
                                                                         }
                                                                         dangerouslySetInnerHTML={{
@@ -651,7 +833,7 @@ const EventList = ({ events, filters }) => {
                                                                         }}
                                                                     />
                                                                 </li>
-                                                            ),
+                                                            )
                                                         )}
                                                     </ul>
                                                 </div>
@@ -660,7 +842,9 @@ const EventList = ({ events, filters }) => {
                                     ) : (
                                         <div className="text-center py-5">
                                             <div className="text-muted">
-                                                {tr.noData}
+                                                {tr(
+                                                    "no_events_found"
+                                                )}
                                             </div>
                                         </div>
                                     )}
@@ -679,6 +863,8 @@ const EventList = ({ events, filters }) => {
     );
 };
 
-EventList.layout = (page) => <Layout children={page} />;
+EventList.layout = (page) => (
+    <Layout children={page} />
+);
 
 export default EventList;

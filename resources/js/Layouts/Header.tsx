@@ -31,7 +31,10 @@ const Header = ({ onChangeLayoutMode, layoutModeType, headerClass }: any) => {
     const toogleSearch = () => {
         setSearch(!search);
     };
-    const { settings } = usePage().props as any;
+    const { settings, rolePrefix } = usePage().props as {
+        settings: any;
+        rolePrefix: string;
+    };
     const logo = settings?.app_logo
         ? `/storage/${settings.app_logo}`
         : logoLight;
@@ -113,7 +116,12 @@ const Header = ({ onChangeLayoutMode, layoutModeType, headerClass }: any) => {
                     <div className="navbar-header">
                         <div className="d-flex">
                             <div className="navbar-brand-box horizontal-logo">
-                                <Link href="/" className="logo logo-dark">
+                                <Link
+                                    href={route("role.pads.list", {
+                                        rolePrefix: rolePrefix,
+                                    })}
+                                    className="logo logo-dark"
+                                >
                                     {/* <span className="logo-sm">
                                         <img
                                             src={logoSm}
@@ -133,7 +141,9 @@ const Header = ({ onChangeLayoutMode, layoutModeType, headerClass }: any) => {
                                 </Link>
 
                                 <Link
-                                    href="/admin/dashboard"
+                                    href={route("role.pads.list", {
+                                        rolePrefix: rolePrefix,
+                                    })}
                                     className="logo logo-light"
                                 >
                                     <span className="logo-sm">
@@ -151,8 +161,7 @@ const Header = ({ onChangeLayoutMode, layoutModeType, headerClass }: any) => {
                                             height="50"
                                             style={{ borderRadius: "30px" }}
                                             onError={(e) => {
-                                                e.currentTarget.src =
-                                                    logoLight;
+                                                e.currentTarget.src = logoLight;
                                             }}
                                         />
                                     </span>

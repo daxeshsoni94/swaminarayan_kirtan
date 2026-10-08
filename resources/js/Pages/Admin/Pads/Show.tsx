@@ -1,27 +1,79 @@
-// resources/js/Pages/Admin/Pads/Show.jsx
-
-import React, { useState } from "react";
-import { Card, Col, Container, Row } from "react-bootstrap";
+import React, { useEffect, useMemo, useState } from "react";
+import { Button, Card, Col, Container, Modal, Row } from "react-bootstrap";
 import BreadCrumb from "../../../Components/Common/BreadCrumb";
+
 import { Head, Link, router, usePage } from "@inertiajs/react";
+
 import Layout from "../../../Layouts";
-import { toast } from "react-toastify";
+
 import { usePermission } from "../../../hooks/usePermission";
 
-// ── Resolve translation object → string ───────────────────────────────────────
-const t = (v: any, locale = "en"): string => {
-    if (v == null) return "";
-    if (typeof v === "string") return v;
-    if (typeof v === "object") {
-        return v[locale] ?? v.en ?? v.gu ?? Object.values(v)[0] ?? "";
-    }
-    return String(v);
+import { gujaratiNumber } from "../../../utils/number";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+type TranslationFunction = (
+    key: string,
+    replacements?: Record<string, string | number>,
+) => string;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Central Translator
+// ─────────────────────────────────────────────────────────────────────────────
+
+const createTranslator = (
+    translations: Record<string, any>,
+): TranslationFunction => {
+    return (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ): string => {
+        let text = translations[key] ?? key;
+
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(new RegExp(`:${name}`, "g"), String(value));
+        });
+
+        return text;
+    };
 };
 
-// ─── Status Badge ─────────────────────────────────────────────────────────────
-const StatusBadge = ({ status, isGu }: { status?: string; isGu: boolean }) => {
+// ─────────────────────────────────────────────────────────────────────────────
+// Dynamic DB Translation
+// ─────────────────────────────────────────────────────────────────────────────
+
+const tValue = (value: any, locale: string): string => {
+    if (value == null) {
+        return "";
+    }
+
+    if (typeof value === "string") {
+        return value;
+    }
+
+    if (typeof value === "object") {
+        return value[locale] ?? Object.values(value)[0] ?? "";
+    }
+
+    return String(value);
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Status Badge
+// ─────────────────────────────────────────────────────────────────────────────
+
+const StatusBadge = ({
+    status,
+    tr,
+}: {
+    status?: string;
+    tr: TranslationFunction;
+}) => {
     const key = (status || "").toLowerCase();
-    const map: Record<string, string> = {
+
+    const classMap: Record<string, string> = {
         save: "badge bg-success-subtle text-success text-uppercase",
         published: "badge bg-success-subtle text-success text-uppercase",
         active: "badge bg-success-subtle text-success text-uppercase",
@@ -30,16 +82,17 @@ const StatusBadge = ({ status, isGu }: { status?: string; isGu: boolean }) => {
     };
 
     let label = status || "—";
+
     if (key === "save" || key === "published") {
-        label = isGu ? "પ્રકાશિત" : "Published";
+        label = tr("published");
     } else if (key === "draft") {
-        label = isGu ? "ડ્રાફ્ટ" : "Draft";
+        label = tr("draft");
     }
 
     return (
         <span
             className={
-                map[key] ??
+                classMap[key] ??
                 "badge bg-secondary-subtle text-secondary text-uppercase"
             }
         >
@@ -48,196 +101,364 @@ const StatusBadge = ({ status, isGu }: { status?: string; isGu: boolean }) => {
     );
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-const formatDate = (value: any) => {
-    if (value === null || value === undefined || value === "") return "—";
+// ─────────────────────────────────────────────────────────────────────────────
+// Date Formatter
+// ─────────────────────────────────────────────────────────────────────────────
 
-    const str = String(value).trim();
-    const m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (!m) return str;
+const formatDate = (value: any, locale: string): string => {
+    if (value === null || value === undefined || value === "") {
+        return "—";
+    }
 
-    const months = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-    ];
-    const [, year, month, day] = m;
-    return `${day} ${months[Number(month) - 1]} ${year}`;
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return String(value);
+    }
+
+    const parts = new Intl.DateTimeFormat(locale, {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+    }).formatToParts(date);
+
+    const day = parts.find((part) => part.type === "day")?.value ?? "";
+    const month = parts.find((part) => part.type === "month")?.value ?? "";
+    const year = parts.find((part) => part.type === "year")?.value ?? "";
+
+    const formatted = `${day}-${month}-${year}`;
+
+    return gujaratiNumber(formatted, locale);
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Group Categories
+// ─────────────────────────────────────────────────────────────────────────────
+
 const groupCategories = (categories: any[] = [], locale: string) =>
-    categories.reduce((acc: Record<string, string[]>, c) => {
-        const type = t(c.type, locale);
-        const value = t(c.value, locale);
-        if (!type) return acc;
-        if (!acc[type]) acc[type] = [];
-        if (value) acc[type].push(value);
+    categories.reduce((acc: Record<string, string[]>, category: any) => {
+        const type = tValue(category.type, locale);
+        const value = tValue(category.value, locale);
+
+        if (!type) {
+            return acc;
+        }
+
+        if (!acc[type]) {
+            acc[type] = [];
+        }
+
+        if (value) {
+            acc[type].push(value);
+        }
+
         return acc;
     }, {});
 
-const storageUrl = (fileUrl: string | null | undefined) => {
-    if (!fileUrl) return null;
+// ─────────────────────────────────────────────────────────────────────────────
+// Storage URL
+// ─────────────────────────────────────────────────────────────────────────────
+
+const storageUrl = (fileUrl: string | null | undefined): string | null => {
+    if (!fileUrl) {
+        return null;
+    }
+
     if (fileUrl.startsWith("http") || fileUrl.startsWith("/storage/")) {
         return fileUrl;
     }
-    return `/storage/${String(fileUrl).replace(/^\//, "")}`;
+
+    return `/storage/${String(fileUrl).replace(/^\/+/, "")}`;
 };
 
-// ─── Single Version Block ─────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Recorded Version Block
+// ─────────────────────────────────────────────────────────────────────────────
+
 const RecordedVersionBlock = ({
     recording,
     index,
-    isGu,
     locale,
+    tr,
 }: {
     recording: any;
     index: number;
-    isGu: boolean;
     locale: string;
+    tr: TranslationFunction;
 }) => {
+    const [showYoutubeModal, setShowYoutubeModal] = useState(false);
+    const [showMediaModal, setShowMediaModal] = useState(false);
+
     const fileUrl = storageUrl(recording?.file_url);
 
     const fileName = fileUrl
-        ? decodeURIComponent(
-              new URL(fileUrl, window.location.origin).pathname
-                  .split("/")
-                  .pop() || "",
-          )
+        ? (() => {
+              const fullName = decodeURIComponent(
+                  new URL(fileUrl, window.location.origin).pathname
+                      .split("/")
+                      .pop() || "",
+              );
+
+              // Remove the uniqid prefix (everything before the first underscore)
+              // Example: 6aa13da3d1e71_bochok05-free-beats-13026.mp3
+              //       → bochok05-free-beats-13026.mp3
+              const underscoreIndex = fullName.indexOf("_");
+              if (underscoreIndex > 0) {
+                  return fullName.substring(underscoreIndex + 1);
+              }
+
+              return fullName;
+          })()
         : "";
 
+    const mediaType =
+        recording?.media_type === "audio"
+            ? tr("audio")
+            : recording?.media_type === "video"
+              ? tr("video")
+              : recording?.media_type || "—";
+
+    const recordingType =
+        recording?.recording_type === "live"
+            ? tr("live")
+            : recording?.recording_type === "studio"
+              ? tr("studio")
+              : recording?.recording_type || "—";
+
     return (
-        <div
-            className="border rounded p-3 mb-3"
-            style={{ background: "#f8f9fa" }}
-        >
+        <div className="border rounded p-3 mb-3">
             <h6 className="fw-semibold mb-3">
-                {isGu ? `સંસ્કરણ #${index + 1}` : `Version #${index + 1}`}
-                {recording.id && (
-                    <span
-                        className="badge bg-secondary ms-2"
-                        style={{ fontSize: "10px" }}
-                    >
-                        ID #{recording.id}
-                    </span>
-                )}
+                {tr("version", {
+                    number: gujaratiNumber(index + 1, locale),
+                })}
             </h6>
 
             <Row className="g-3" style={{ fontSize: "13px" }}>
                 <Col md={4}>
-                    <span className="fw-semibold text-dark">
-                        {isGu ? "મીડિયા પ્રકાર: " : "Media Type: "}
+                    <span className="fw-semibold text-body">
+                        {tr("media_type")}:{" "}
                     </span>
-                    {recording.media_type === "audio"
-                        ? isGu
-                            ? "ઑડિયો"
-                            : "Audio"
-                        : recording.media_type === "video"
-                          ? isGu
-                              ? "વિડિયો"
-                              : "Video"
-                          : recording.media_type || "—"}
+                    {mediaType}
                 </Col>
 
                 <Col md={4}>
-                    <span className="fw-semibold text-dark">
-                        {isGu ? "રેકોર્ડિંગ પ્રકાર: " : "Recording Type: "}
+                    <span className="fw-semibold text-body">
+                        {tr("recording_type")}:{" "}
                     </span>
-                    {recording.recording_type === "live"
-                        ? isGu
-                            ? "લાઈવ"
-                            : "Live"
-                        : recording.recording_type === "studio"
-                          ? isGu
-                              ? "સ્ટુડિયો"
-                              : "Studio"
-                          : recording.recording_type || "—"}
+                    {recordingType}
                 </Col>
 
                 <Col md={4}>
-                    <span className="fw-semibold text-dark">
-                        {isGu ? "ગાયક: " : "Singer: "}
+                    <span className="fw-semibold text-body">
+                        {tr("singer")}:{" "}
                     </span>
-                    {t(recording.singer, locale) || "—"}
+                    {tValue(recording?.singer, locale) || "—"}
                 </Col>
 
                 <Col md={4}>
-                    <span className="fw-semibold text-dark">
-                        {isGu ? "પ્રકાશક: " : "Publisher: "}
+                    <span className="fw-semibold text-body">
+                        {tr("publisher")}:{" "}
                     </span>
-                    {t(recording.publisher, locale) || "—"}
+                    {tValue(recording?.publisher, locale) || "—"}
                 </Col>
 
                 <Col md={4}>
-                    <span className="fw-semibold text-dark">
-                        {isGu ? "ઉચ્ચારણ: " : "Vocalization: "}
+                    <span className="fw-semibold text-body">
+                        {tr("vocalization")}:{" "}
                     </span>
-                    {t(recording.vocalization, locale) || "—"}
+                    {tValue(recording?.vocalization, locale) || "—"}
+                </Col>
+
+                <Col md={4}>
+                    <span className="fw-semibold text-body">
+                        {tr("raga")}:{" "}
+                    </span>
+                    {tValue(recording?.raga, locale) || "—"}
                 </Col>
 
                 <Col md={12}>
-                    {fileUrl ? (
-                        <div>
-                            <span className="fw-semibold text-dark d-block mb-2">
-                                {isGu ? "મીડિયા:" : "Media:"}
-                            </span>
+                    {/* Render File Name if exists */}
+                    {fileUrl &&
+                        fileUrl !== "null" &&
+                        fileUrl !== "/storage/null" && (
                             <div className="mb-2">
-                                <span className="text-muted small">
-                                    {isGu ? "ફાઈલ નામ:" : "File name:"}{" "}
+                                <span className="fw-semibold text-body">
+                                    {tr("file_name")}:{" "}
                                 </span>
-                                <span className="fw-semibold small">
-                                    {fileName}
-                                </span>
+                                {tValue(recording?.file_name, locale) || "—"}
                             </div>
+                        )}
 
-                            {recording.media_type === "video" ? (
-                                <video
-                                    controls
-                                    src={fileUrl}
-                                    className="w-100 rounded"
-                                    style={{ maxHeight: 320 }}
-                                />
-                            ) : (
-                                <audio
-                                    controls
-                                    src={fileUrl}
-                                    className="w-100"
-                                />
+                    <div className="d-flex flex-wrap align-items-center gap-2 mb-2">
+                        {/* Render File Preview Button / Inline Audio if exists */}
+                        {fileUrl &&
+                            fileUrl !== "null" &&
+                            fileUrl !== "/storage/null" && (
+                                <>
+                                    {recording?.media_type === "audio" ? (
+                                        <div className="w-100 my-2">
+                                            <audio
+                                                controls
+                                                src={fileUrl}
+                                                className="w-100"
+                                            >
+                                                Your browser does not support
+                                                the audio element.
+                                            </audio>
+                                            {/* <div className="mt-1">
+                                                <a
+                                                    href={fileUrl}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    style={{
+                                                        fontSize: "12px",
+                                                        textDecoration: "none",
+                                                    }}
+                                                >
+                                                    Open file
+                                                </a>
+                                            </div> */}
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <Button
+                                                variant="info"
+                                                size="sm"
+                                                onClick={() =>
+                                                    setShowMediaModal(true)
+                                                }
+                                            >
+                                                <i className="ri-video-line me-1"></i>{" "}
+                                                {tr("preview_media") ||
+                                                    "Preview Media"}
+                                            </Button>
+
+                                            <Modal
+                                                show={showMediaModal}
+                                                onHide={() =>
+                                                    setShowMediaModal(false)
+                                                }
+                                                size="lg"
+                                                centered
+                                            >
+                                                <Modal.Header closeButton>
+                                                    <Modal.Title>
+                                                        {tValue(
+                                                            recording?.file_name,
+                                                            locale,
+                                                        ) ||
+                                                            tr(
+                                                                "preview_media",
+                                                            ) ||
+                                                            "Preview Media"}
+                                                    </Modal.Title>
+                                                </Modal.Header>
+                                                <Modal.Body className="p-0 text-center bg-dark">
+                                                    <video
+                                                        controls
+                                                        src={fileUrl}
+                                                        className="w-100"
+                                                        style={{
+                                                            maxHeight: "70vh",
+                                                        }}
+                                                        autoPlay
+                                                    />
+                                                </Modal.Body>
+                                            </Modal>
+                                        </>
+                                    )}
+                                </>
                             )}
 
-                            <div className="mt-2">
-                                <a
-                                    href={fileUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="small"
-                                >
-                                    {isGu ? "ફાઈલ ખોલો" : "Open file"}
-                                </a>
-                            </div>
-                        </div>
-                    ) : (
-                        <span className="text-muted">
-                            {isGu
-                                ? "કોઈ ફાઈલ અપલોડ કરેલ નથી."
-                                : "No file uploaded."}
-                        </span>
-                    )}
+                        {/* Render YouTube Button if exists */}
+                        {recording?.youtube_url &&
+                            recording?.youtube_url !== "null" &&
+                            (() => {
+                                // Extract YouTube Video ID
+                                const url = recording.youtube_url;
+                                let videoId = null;
+                                const match = url.match(
+                                    /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&?]+)/,
+                                );
+                                if (match && match[1]) {
+                                    videoId = match[1];
+                                }
+
+                                if (videoId) {
+                                    return (
+                                        <>
+                                            <Button
+                                                variant="danger"
+                                                size="sm"
+                                                onClick={() =>
+                                                    setShowYoutubeModal(true)
+                                                }
+                                            >
+                                                <i className="ri-youtube-fill me-1"></i>{" "}
+                                                Play YouTube Video
+                                            </Button>
+
+                                            <Modal
+                                                show={showYoutubeModal}
+                                                onHide={() =>
+                                                    setShowYoutubeModal(false)
+                                                }
+                                                size="lg"
+                                                centered
+                                            >
+                                                <Modal.Header closeButton>
+                                                    <Modal.Title>
+                                                        YouTube Video
+                                                    </Modal.Title>
+                                                </Modal.Header>
+                                                <Modal.Body className="p-0">
+                                                    <div className="ratio ratio-16x9">
+                                                        <iframe
+                                                            src={`https://www.youtube.com/embed/${videoId}`}
+                                                            title="YouTube video player"
+                                                            frameBorder="0"
+                                                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                                            allowFullScreen
+                                                        ></iframe>
+                                                    </div>
+                                                </Modal.Body>
+                                            </Modal>
+                                        </>
+                                    );
+                                } else {
+                                    return (
+                                        <div className="text-muted small">
+                                            Invalid YouTube URL
+                                        </div>
+                                    );
+                                }
+                            })()}
+                    </div>
+
+                    {!(
+                        recording?.youtube_url &&
+                        recording?.youtube_url !== "null"
+                    ) &&
+                        !(
+                            fileUrl &&
+                            fileUrl !== "null" &&
+                            fileUrl !== "/storage/null"
+                        ) && (
+                            <span className="text-muted">
+                                {tr("no_file_uploaded") ||
+                                    "No media available."}
+                            </span>
+                        )}
                 </Col>
             </Row>
         </div>
     );
 };
 
-// ─── Show ─────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Show
+// ─────────────────────────────────────────────────────────────────────────────
+
 const Show = ({
     pad,
     is_favorited = false,
@@ -245,10 +466,14 @@ const Show = ({
     pad: any;
     is_favorited?: boolean;
 }) => {
-    const page = usePage().props as { locale?: string };
-    const locale = (page.locale === "gu" ? "gu" : "en") as "en" | "gu";
-    const isGu = locale === "gu";
-    const { auth } = usePage().props as any;
+    const page = usePage().props as any;
+
+    const { auth, translations = {}, locale } = page;
+
+    const currentLocale = locale || "gu";
+
+    const tr = useMemo(() => createTranslator(translations), [translations]);
+
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
@@ -259,18 +484,34 @@ const Show = ({
     const [isFavorited, setIsFavorited] = useState(is_favorited);
     const [loading, setLoading] = useState(false);
 
-    const categoriesByType = groupCategories(pad?.categories ?? [], locale);
+    // Keep local state in sync when the page is re-rendered after toggle
+    useEffect(() => {
+        setIsFavorited(is_favorited);
+    }, [is_favorited]);
 
-    // Support both old singular and new plural
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Truncate Utility
+    // ─────────────────────────────────────────────────────────────────────────────
+    const truncate = (text: string, len = 60) => {
+        if (!text) return "";
+        return text.length > len ? text.substring(0, len) + "..." : text;
+    };
+
+    const categoriesByType = groupCategories(
+        pad?.categories ?? [],
+        currentLocale,
+    );
+
     const recordings: any[] = Array.isArray(pad?.recorded_versions)
         ? pad.recorded_versions
         : pad?.recorded_version
           ? [pad.recorded_version]
           : [];
 
-    const displayTitle =
-        t(pad?.title, locale) || (isGu ? "પદની વિગતો" : "Pad Details");
-    const displayLyrics = t(pad?.value, locale);
+    const displayTitle = truncate(
+        tValue(pad?.title, currentLocale) || tr("pad_details"),
+    );
+    const displayLyrics = tValue(pad?.value, currentLocale);
 
     const handleToggleFavorite = () => {
         if (loading) return;
@@ -279,35 +520,26 @@ const Show = ({
 
         router.post(
             route("role.pads.toggle-favorite", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 pad: pad.id,
             }),
             {},
             {
                 preserveScroll: true,
-                onSuccess: (page: any) => {
-                    const newStatus =
-                        page.props.flash?.is_favorited ?? !isFavorited;
+                replace: true,
 
-                    setIsFavorited(newStatus);
+                onSuccess: () => {
+                    // Optimistic update (backend will also send fresh is_favorited)
+                    setIsFavorited((prev) => !prev);
                     setLoading(false);
-
-                    toast.success(
-                        newStatus
-                            ? isGu
-                                ? "પદ મનપસંદમાં ઉમેરાયું."
-                                : "Added to favorites."
-                            : isGu
-                              ? "પદ મનપસંદમાંથી દૂર કર્યું."
-                              : "Removed from favorites.",
-                    );
                 },
+
                 onError: () => {
                     setLoading(false);
+                },
 
-                    toast.error(
-                        isGu ? "કંઈક ખોટું થયું." : "Something went wrong.",
-                    );
+                onFinish: () => {
+                    setLoading(false);
                 },
             },
         );
@@ -315,13 +547,11 @@ const Show = ({
 
     return (
         <React.Fragment>
-            <Head title={isGu ? "પદની વિગતો" : "Pad Details"} />
+            <Head title={tr("pad_details")} />
+
             <div className="page-content">
                 <Container fluid>
-                    <BreadCrumb
-                        title={displayTitle}
-                        pageTitle={isGu ? "પદ" : "Pads"}
-                    />
+                    <BreadCrumb title={displayTitle} pageTitle={tr("pads")} />
 
                     <Row>
                         <Col lg={12}>
@@ -332,12 +562,15 @@ const Show = ({
                                         <h5 className="card-title mb-1">
                                             {displayTitle}
                                         </h5>
+
                                         <StatusBadge
                                             status={pad?.status}
-                                            isGu={isGu}
+                                            tr={tr}
                                         />
                                     </div>
+
                                     <div className="d-flex gap-2 align-items-center">
+                                        {/* Favorite */}
                                         <button
                                             type="button"
                                             className={`btn btn-sm ${
@@ -349,12 +582,10 @@ const Show = ({
                                             disabled={loading}
                                             title={
                                                 isFavorited
-                                                    ? isGu
-                                                        ? "મનપસંદમાંથી દૂર કરો"
-                                                        : "Remove from favorites"
-                                                    : isGu
-                                                      ? "મનપસંદમાં ઉમેરો"
-                                                      : "Add to favorites"
+                                                    ? tr(
+                                                          "remove_from_favorites",
+                                                      )
+                                                    : tr("add_to_favorites")
                                             }
                                         >
                                             <i
@@ -365,18 +596,22 @@ const Show = ({
                                                 }`}
                                             ></i>
                                         </button>
+
+                                        {/* Edit */}
                                         {canEdit && (
                                             <Link
                                                 href={route("role.pads.edit", {
-                                                    rolePrefix: rolePrefix,
+                                                    rolePrefix,
                                                     pad: pad.id,
                                                 })}
                                                 className="btn btn-warning btn-sm"
                                             >
                                                 <i className="ri-pencil-fill me-1"></i>
-                                                {isGu ? "ફેરફાર કરો" : "Edit"}
+                                                {tr("edit")}
                                             </Link>
                                         )}
+
+                                        {/* Back */}
                                         <button
                                             type="button"
                                             onClick={() =>
@@ -385,38 +620,44 @@ const Show = ({
                                             className="btn btn-secondary btn-sm"
                                         >
                                             <i className="ri-arrow-left-line me-1"></i>
-                                            {isGu ? "પાછળ જાઓ" : "Back"}
+                                            {tr("back")}
                                         </button>
                                     </div>
                                 </Card.Header>
+
                                 <Card.Body>
                                     <Row
                                         className="g-3 text-muted"
                                         style={{ fontSize: "13px" }}
                                     >
                                         <Col sm={4}>
-                                            <span className="fw-semibold text-dark">
-                                                {isGu
-                                                    ? "સ્થાપના તારીખ: "
-                                                    : "Establish Date: "}
+                                            <span className="fw-semibold text-body">
+                                                {tr("establish_date")}:{" "}
                                             </span>
-                                            {formatDate(pad?.establish_date)}
+                                            {formatDate(
+                                                pad?.establish_date,
+                                                currentLocale,
+                                            )}
                                         </Col>
+
                                         <Col sm={4}>
-                                            <span className="fw-semibold text-dark">
-                                                {isGu
-                                                    ? "બનાવ્યું: "
-                                                    : "Created: "}
+                                            <span className="fw-semibold text-body">
+                                                {tr("created")}:{" "}
                                             </span>
-                                            {formatDate(pad?.created_at)}
+                                            {formatDate(
+                                                pad?.created_at,
+                                                currentLocale,
+                                            )}
                                         </Col>
+
                                         <Col sm={4}>
-                                            <span className="fw-semibold text-dark">
-                                                {isGu
-                                                    ? "છેલ્લે અપડેટ: "
-                                                    : "Last Updated: "}
+                                            <span className="fw-semibold text-body">
+                                                {tr("last_updated")}:{" "}
                                             </span>
-                                            {formatDate(pad?.updated_at)}
+                                            {formatDate(
+                                                pad?.updated_at,
+                                                currentLocale,
+                                            )}
                                         </Col>
                                     </Row>
                                 </Card.Body>
@@ -427,9 +668,10 @@ const Show = ({
                                 <Card.Header>
                                     <h6 className="mb-0 fw-semibold">
                                         <i className="ri-music-2-line me-1"></i>
-                                        {isGu ? "ગીત" : "Lyrics"}
+                                        {tr("lyrics")}
                                     </h6>
                                 </Card.Header>
+
                                 <Card.Body>
                                     <div
                                         className="p-3 rounded border"
@@ -442,9 +684,7 @@ const Show = ({
                                     >
                                         {displayLyrics || (
                                             <span className="text-muted">
-                                                {isGu
-                                                    ? "કોઈ ગીત ઉપલબ્ધ નથી."
-                                                    : "No lyrics available."}
+                                                {tr("no_lyrics")}
                                             </span>
                                         )}
                                     </div>
@@ -452,14 +692,15 @@ const Show = ({
                             </Card>
 
                             {/* Categories */}
-                            {Object.keys(categoriesByType).length > 0 && (
+                            {/* {Object.keys(categoriesByType).length > 0 && (
                                 <Card>
                                     <Card.Header>
                                         <h6 className="mb-0 fw-semibold">
                                             <i className="ri-price-tag-3-line me-1"></i>
-                                            {isGu ? "શ્રેણીઓ" : "Categories"}
+                                            {tr("categories")}
                                         </h6>
                                     </Card.Header>
+
                                     <Card.Body>
                                         <div className="d-flex flex-wrap gap-2">
                                             {Object.entries(
@@ -473,13 +714,14 @@ const Show = ({
                                                     <span className="fw-semibold text-muted me-1">
                                                         {type}:
                                                     </span>
+
                                                     {(values as string[]).map(
-                                                        (v, i) => (
+                                                        (value, index) => (
                                                             <span
-                                                                key={i}
+                                                                key={index}
                                                                 className="badge bg-info-subtle text-info me-1"
                                                             >
-                                                                {v}
+                                                                {value}
                                                             </span>
                                                         ),
                                                     )}
@@ -488,32 +730,107 @@ const Show = ({
                                         </div>
                                     </Card.Body>
                                 </Card>
+                            )} */}
+
+                            {/* Categories */}
+                            {Object.keys(categoriesByType).length > 0 && (
+                                <Card>
+                                    <Card.Header>
+                                        <h6 className="mb-0 fw-semibold">
+                                            <i className="ri-price-tag-3-line me-1"></i>
+                                            {tr("categories")}
+                                        </h6>
+                                    </Card.Header>
+
+                                    <Card.Body>
+                                        <div className="d-flex flex-column gap-3">
+                                            {Object.entries(
+                                                categoriesByType,
+                                            ).map(([type, values]) => {
+                                                const isLongContent = (
+                                                    values as string[]
+                                                ).some(
+                                                    (v) => v && v.length > 80,
+                                                );
+
+                                                return (
+                                                    <div
+                                                        key={type}
+                                                        className="border rounded p-3"
+                                                        style={{
+                                                            fontSize:
+                                                                isLongContent
+                                                                    ? "16px"
+                                                                    : "14px",
+                                                        }}
+                                                    >
+                                                        <div className="fw-semibold text-muted mb-2">
+                                                            {type}
+                                                        </div>
+
+                                                        {(
+                                                            values as string[]
+                                                        ).map((value, index) =>
+                                                            isLongContent ? (
+                                                                <div
+                                                                    key={index}
+                                                                    className="mb-2"
+                                                                    style={{
+                                                                        whiteSpace:
+                                                                            "pre-wrap",
+                                                                        lineHeight:
+                                                                            "1.7",
+                                                                        background:
+                                                                            "var(--vz-light)",
+                                                                        padding:
+                                                                            "12px",
+                                                                        borderRadius:
+                                                                            "6px",
+                                                                    }}
+                                                                >
+                                                                    {value}
+                                                                </div>
+                                                            ) : (
+                                                                <span
+                                                                    key={index}
+                                                                    className="badge bg-info-subtle text-info me-1 mb-1"
+                                                                >
+                                                                    {value}
+                                                                </span>
+                                                            ),
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </Card.Body>
+                                </Card>
                             )}
 
-                            {/* Recorded Versions (multiple) */}
+                            {/* Recorded Versions */}
                             <Card>
                                 <Card.Header>
                                     <h6 className="mb-0 fw-semibold">
                                         <i className="ri-mic-line me-1"></i>
-                                        {isGu
-                                            ? "રેકોર્ડ કરેલ સંસ્કરણો"
-                                            : "Recorded Versions"}
+                                        {tr("recorded_versions")}
                                         {recordings.length > 0 && (
                                             <span
                                                 className="badge bg-primary ms-2"
                                                 style={{ fontSize: "10px" }}
                                             >
-                                                {recordings.length}
+                                                {gujaratiNumber(
+                                                    recordings.length,
+                                                    currentLocale,
+                                                )}
                                             </span>
                                         )}
                                     </h6>
                                 </Card.Header>
+
                                 <Card.Body>
                                     {recordings.length === 0 ? (
                                         <p className="text-muted mb-0">
-                                            {isGu
-                                                ? "કોઈ રેકોર્ડિંગ જોડાયેલ નથી."
-                                                : "No recording attached."}
+                                            {tr("no_recording")}
                                         </p>
                                     ) : (
                                         recordings.map((recording, index) => (
@@ -521,8 +838,8 @@ const Show = ({
                                                 key={recording.id ?? index}
                                                 recording={recording}
                                                 index={index}
-                                                isGu={isGu}
-                                                locale={locale}
+                                                locale={currentLocale}
+                                                tr={tr}
                                             />
                                         ))
                                     )}
@@ -536,5 +853,6 @@ const Show = ({
     );
 };
 
-Show.layout = (page: any) => <Layout children={page} />;
+Show.layout = (page: any) => <Layout>{page}</Layout>;
+
 export default Show;

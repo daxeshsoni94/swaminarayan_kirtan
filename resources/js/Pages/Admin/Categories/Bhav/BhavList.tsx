@@ -1,136 +1,132 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+
 import { Card, Col, Container, Dropdown, Row } from "react-bootstrap";
+
 import TableContainer from "../../../../Components/Common/TableContainer";
+
 import { Head, router, usePage } from "@inertiajs/react";
+
 import BreadCrumb from "../../../../Components/Common/BreadCrumb";
+
 import DeleteModal from "../../../../Components/Common/DeleteModal";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+
 import Layout from "../../../../Layouts";
+
 import { gujaratiNumber } from "../../../../utils/number";
+
 import { useAlphabetFilter } from "../../../../hooks/useAlphabetFilter";
+
 import AlphabetFilter from "../../../../Components/Common/AlphabetFilter";
+
 import { usePermission } from "../../../../hooks/usePermission";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Resolve translation object → string
+// Resolve multilingual value dynamically
+//
 // Example:
-// { en: "Diwali", gu: "દિવાળી" } → Diwali / દિવાળી
+// { en: "Diwali", gu: "દિવાળી" }
+//
+// If locale = "gu" → દિવાળી
+// If locale = "en" → Diwali
+//
+// No language code is hardcoded here.
 // ─────────────────────────────────────────────────────────────────────────────
-const t = (v, locale = "en") => {
-    if (v == null) return "";
 
-    if (typeof v === "string") {
-        return v;
+const tValue = (value: any, locale: string): string => {
+    if (value == null) return "";
+
+    if (typeof value === "string") {
+        return value;
     }
 
-    if (typeof v === "object") {
-        return v[locale] ?? v.en ?? v.gu ?? Object.values(v)[0] ?? "";
+    if (typeof value === "object") {
+        return value[locale] ?? Object.values(value)[0] ?? "";
     }
 
-    return String(v);
+    return String(value);
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
-/**
- * @typedef {Object} BhavItem
- * @property {number} id
- * @property {string|Object} type
- * @property {string|Object} value
- * @property {number} [pads_count]
- * @property {number} [created_by]
- * @property {string} created_at
- * @property {string} [updated_at]
- */
 
-/**
- * @typedef {Object} PaginatedBhavs
- * @property {BhavItem[]} data
- * @property {number} current_page
- * @property {number} last_page
- * @property {number} per_page
- * @property {number} total
- * @property {Array} links
- */
+interface BhavItem {
+    id: number;
+    type?: string | Record<string, string>;
+    value: string | Record<string, string>;
+    pads_count?: number;
+    created_by?: number;
+    created_at: string;
+    updated_at?: string;
+}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Translations
-// ─────────────────────────────────────────────────────────────────────────────
-const translations = {
-    en: {
-        create: "Create Bhav",
-        title: "Bhavs",
-        pageTitle: "Bhavs",
-        searchPlaceholder: "Search by bhav name…",
-        noData: "No bhavs found.",
-        deleteSuccess: "Bhav deleted successfully.",
-        bulkDeleteSuccess: "Bhavs deleted successfully.",
-        bulkDeleteFail: "Failed to delete bhavs.",
-        selectAtLeastOne: "Select at least one bhav.",
-        view: "View",
-        edit: "Edit",
-        delete: "Delete",
-        showing: "Showing",
-        of: "of",
-        results: "results",
-    },
-
-    gu: {
-        create: "ભાવ  બનાવો",
-        title: "ભાવની યાદી ",
-        pageTitle: "ભાવ",
-        searchPlaceholder: "ભાવ  શોધો…",
-        noData: "કોઈ ભાવ  મળી નથી.",
-        deleteSuccess: "ભાવ  સફળતાપૂર્વક કાઢી નાખવામાં આવી.",
-        bulkDeleteSuccess: "ભાવ  સફળતાપૂર્વક કાઢી નાખવામાં આવી.",
-        bulkDeleteFail: "ભાવ  કાઢી નાખવામાં નિષ્ફળતા.",
-        selectAtLeastOne: "ઓછામાં ઓછું એક ભાવ  પસંદ કરો.",
-        view: "જુઓ",
-        edit: "ફેરફાર કરો",
-        delete: "કાઢી નાખો",
-        showing: "બતાવી રહ્યા છીએ",
-        of: "માંથી",
-        results: "પરિણામો",
-    },
-};
+interface PaginatedBhavs {
+    data: BhavItem[];
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+    links: any[];
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
-const BhavList = ({ bhavs, filters }) => {
-    const page = usePage().props;
 
-    const locale = page.locale === "gu" ? "gu" : "en";
-    const isGu = locale === "gu";
-    const { auth } = usePage().props as any;
+const BhavList = ({
+    bhavs,
+    filters,
+}: {
+    bhavs: PaginatedBhavs;
+    filters?: {
+        search?: string;
+    };
+}) => {
+    const page = usePage().props as any;
+
+    const { auth, translations: pageTranslations, locale: pageLocale } = page;
+
+    // Laravel already provides the current locale.
+    const locale = pageLocale;
+
+    // Centralized Laravel translations
+    const translations = pageTranslations || {};
+
+    // Languages from database
+    const languages = page.languages || [];
+
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
-    const tr = translations[locale];
+
     const { can } = usePermission();
+
     const canCreate = can("categories", "create");
     const canEdit = can("categories", "edit");
     const canDelete = can("categories", "delete");
 
-    const [data, setData] = useState(bhavs?.data ?? []);
+    const [data, setData] = useState<BhavItem[]>(bhavs?.data ?? []);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Delete state
     // ─────────────────────────────────────────────────────────────────────────
-    const [item, setItem] = useState(null);
+
+    const [item, setItem] = useState<BhavItem | null>(null);
+
     const [deleteModal, setDeleteModal] = useState(false);
+
     const [deleteModalMulti, setDeleteModalMulti] = useState(false);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Search
     // ─────────────────────────────────────────────────────────────────────────
+
     const [search, setSearch] = useState(filters?.search ?? "");
+
     const { selectedLetter, handleLetterFilter } = useAlphabetFilter(
         "role.category.bhavlist",
         {
-            rolePrefix: rolePrefix,
+            rolePrefix,
             search: search || undefined,
             per_page: 10,
         },
@@ -139,10 +135,15 @@ const BhavList = ({ bhavs, filters }) => {
     // ─────────────────────────────────────────────────────────────────────────
     // Selected IDs
     // ─────────────────────────────────────────────────────────────────────────
-    const [selectedIds, setSelectedIds] = useState([]);
+
+    const [selectedIds, setSelectedIds] = useState<number[]>([]);
+
     const [isMultiDeleteButton, setIsMultiDeleteButton] = useState(false);
 
+    // ─────────────────────────────────────────────────────────────────────────
     // Update local data when Inertia receives new props
+    // ─────────────────────────────────────────────────────────────────────────
+
     useEffect(() => {
         if (bhavs?.data) {
             setData(bhavs.data);
@@ -152,48 +153,49 @@ const BhavList = ({ bhavs, filters }) => {
     // ─────────────────────────────────────────────────────────────────────────
     // Column labels
     // ─────────────────────────────────────────────────────────────────────────
-    const labels = {
-        en: {
-            id: "ID",
-            value: "Bhav",
-            padsCount: "Total Pads",
-            createdAt: "Created At",
-            actions: "Actions",
-        },
 
-        gu: {
-            id: "ક્રમ",
-            type: "પ્રકાર",
-            value: "ભાવ ",
-            padsCount: "કુલ પદો",
-            createdAt: "બનાવ્યાની તારીખ",
-            actions: "ક્રિયાઓ",
-        },
-    }[locale];
+    const labels = useMemo(
+        () => ({
+            id: translations.id ?? "ID",
+            value: translations.value ?? translations.bhav ?? "",
+            padsCount: translations.padsCount ?? translations.total_pads ?? "",
+            createdAt: translations.createdAt ?? translations.created_at ?? "",
+            actions: translations.actions ?? "",
+        }),
+        [translations],
+    );
 
     // ─────────────────────────────────────────────────────────────────────────
     // Edit
     // ─────────────────────────────────────────────────────────────────────────
-    const handleEdit = (row) => {
+
+    const handleEdit = (row: BhavItem) => {
         router.visit(
             route("role.category.bhavedit", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 bhav: row.id,
             }),
         );
     };
-    const handleRowClick = (row: Pad) => {
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // View pads
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const handleRowClick = (row: BhavItem) => {
         router.visit(
             route("role.categories.bhavs.pads.show", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 bhav: row.id,
             }),
         );
     };
+
     // ─────────────────────────────────────────────────────────────────────────
     // Delete single
     // ─────────────────────────────────────────────────────────────────────────
-    const onClickDelete = (row) => {
+
+    const onClickDelete = (row: BhavItem) => {
         setItem(row);
         setDeleteModal(true);
     };
@@ -201,14 +203,13 @@ const BhavList = ({ bhavs, filters }) => {
     // ─────────────────────────────────────────────────────────────────────────
     // Search
     // ─────────────────────────────────────────────────────────────────────────
-    const handleSearch = (value) => {
-        console.log("BHAV SEARCH:", value);
 
+    const handleSearch = (value: string) => {
         setSearch(value);
 
         router.get(
             route("role.category.bhavlist", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
             {
                 search: value || undefined,
@@ -224,8 +225,9 @@ const BhavList = ({ bhavs, filters }) => {
     // ─────────────────────────────────────────────────────────────────────────
     // Select all
     // ─────────────────────────────────────────────────────────────────────────
+
     const checkedAll = useCallback(
-        (checked) => {
+        (checked: boolean) => {
             if (checked) {
                 const allIds = data.map((row) => Number(row.id));
 
@@ -239,36 +241,44 @@ const BhavList = ({ bhavs, filters }) => {
         [data],
     );
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Delete single
+    // ─────────────────────────────────────────────────────────────────────────
+
     const handleDelete = (deleteRelatedPads: boolean = false) => {
         if (!item) return;
+
         router.delete(
             route("role.bhav.destroy", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 id: item.id,
             }),
             {
                 data: {
                     delete_related_pads: deleteRelatedPads ? 1 : 0,
                 },
+
                 preserveScroll: true,
+
                 onSuccess: () => {
                     setDeleteModal(false);
-                    toast.success(tr.deleteSuccess);
                 },
             },
         );
     };
+
     // ─────────────────────────────────────────────────────────────────────────
     // Bulk delete
     // ─────────────────────────────────────────────────────────────────────────
+
     const deleteMultiple = (deleteRelatedPads: boolean = false) => {
         if (!selectedIds.length) {
-            toast.warning(tr.selectAtLeastOne);
             return;
         }
+
         router.post(
             route("role.bhavs.bulk-destroy", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
             }),
             {
                 ids: selectedIds,
@@ -276,24 +286,28 @@ const BhavList = ({ bhavs, filters }) => {
             },
             {
                 preserveScroll: true,
+
                 onSuccess: () => {
-                    toast.success(tr.bulkDeleteSuccess);
                     setSelectedIds([]);
+
                     setIsMultiDeleteButton(false);
+
                     setDeleteModalMulti(false);
-                },
-                onError: () => {
-                    toast.error(tr.bulkDeleteFail);
                 },
             },
         );
     };
+
     // ─────────────────────────────────────────────────────────────────────────
     // Columns
     // ─────────────────────────────────────────────────────────────────────────
+
     const columns = useMemo(
         () => [
+            // ────────────────────────────────────────────────────────────────
             // Checkbox
+            // ────────────────────────────────────────────────────────────────
+
             ...(canDelete
                 ? [
                       {
@@ -310,7 +324,7 @@ const BhavList = ({ bhavs, filters }) => {
                               />
                           ),
 
-                          cell: (cellProps) => {
+                          cell: (cellProps: any) => {
                               const id = Number(cellProps.row.original.id);
 
                               return (
@@ -343,34 +357,47 @@ const BhavList = ({ bhavs, filters }) => {
                       },
                   ]
                 : []),
+
+            // ────────────────────────────────────────────────────────────────
             // ID
+            // ────────────────────────────────────────────────────────────────
+
             {
                 header: labels.id,
+
                 accessorKey: "id",
+
                 enableColumnFilter: false,
 
-                cell: (cellProps) => (
+                cell: (cellProps: any) => (
                     <span className="fw-medium text-primary">
                         #{gujaratiNumber(cellProps.getValue(), locale)}
                     </span>
                 ),
             },
 
-            // Bhav value
+            // ────────────────────────────────────────────────────────────────
+            // Bhav
+            // ────────────────────────────────────────────────────────────────
+
             {
                 header: labels.value,
+
                 accessorKey: "value",
+
                 enableColumnFilter: false,
 
-                cell: (cellProps) => {
+                cell: (cellProps: any) => {
                     const raw = cellProps.row.original.value;
 
-                    const display = t(raw, locale);
+                    const display = tValue(raw, locale);
 
                     return (
                         <span
                             className="text-muted"
-                            style={{ fontSize: "13px" }}
+                            style={{
+                                fontSize: "13px",
+                            }}
                         >
                             {display || "—"}
                         </span>
@@ -378,13 +405,18 @@ const BhavList = ({ bhavs, filters }) => {
                 },
             },
 
+            // ────────────────────────────────────────────────────────────────
             // Pads count
+            // ────────────────────────────────────────────────────────────────
+
             {
                 header: labels.padsCount,
+
                 accessorKey: "pads_count",
+
                 enableColumnFilter: false,
 
-                cell: (cellProps) => {
+                cell: (cellProps: any) => {
                     const count = cellProps.row.original.pads_count ?? 0;
 
                     return (
@@ -395,20 +427,32 @@ const BhavList = ({ bhavs, filters }) => {
                 },
             },
 
+            // ────────────────────────────────────────────────────────────────
             // Created date
+            // ────────────────────────────────────────────────────────────────
+
             {
                 header: labels.createdAt,
+
                 accessorKey: "created_at",
+
                 enableColumnFilter: false,
 
                 cell: (cellProps: any) => {
-                    const formattedDate = new Date(cellProps.getValue())
+                    const value = cellProps.getValue();
+
+                    if (!value) {
+                        return <span className="text-muted">—</span>;
+                    }
+
+                    const formattedDate = new Date(value)
                         .toLocaleDateString("en-IN", {
                             day: "2-digit",
                             month: "2-digit",
                             year: "numeric",
                         })
                         .replace(/\//g, "-");
+
                     return (
                         <span className="text-muted">
                             {gujaratiNumber(formattedDate, locale)}
@@ -417,11 +461,14 @@ const BhavList = ({ bhavs, filters }) => {
                 },
             },
 
+            // ────────────────────────────────────────────────────────────────
             // Actions
+            // ────────────────────────────────────────────────────────────────
+
             {
                 header: labels.actions,
 
-                cell: (cellProps) => {
+                cell: (cellProps: any) => {
                     const row = cellProps.row.original;
 
                     return (
@@ -436,35 +483,43 @@ const BhavList = ({ bhavs, filters }) => {
 
                                 <Dropdown.Menu className="dropdown-menu-end">
                                     {/* View */}
+
                                     <li>
                                         <Dropdown.Item
-                                            href={route(
-                                                "role.categories.bhavs.pads.show",
-                                                {
-                                                    rolePrefix: rolePrefix,
-                                                    bhav: cellProps.row.original
-                                                        .id,
-                                                },
-                                            )}
+                                            onClick={() =>
+                                                router.visit(
+                                                    route(
+                                                        "role.categories.bhavs.pads.show",
+                                                        {
+                                                            rolePrefix,
+                                                            bhav: row.id,
+                                                        },
+                                                    ),
+                                                )
+                                            }
                                         >
                                             <i className="ri-eye-fill align-bottom me-2 text-muted"></i>
-                                            {tr.view}
+
+                                            {translations.view ?? ""}
                                         </Dropdown.Item>
                                     </li>
 
                                     {/* Edit */}
+
                                     {canEdit && (
                                         <li>
                                             <Dropdown.Item
                                                 onClick={() => handleEdit(row)}
                                             >
                                                 <i className="ri-pencil-fill align-bottom me-2 text-muted"></i>
-                                                {tr.edit}
+
+                                                {translations.edit ?? ""}
                                             </Dropdown.Item>
                                         </li>
                                     )}
 
                                     {/* Delete */}
+
                                     {canDelete && (
                                         <li>
                                             <Dropdown.Item
@@ -474,7 +529,8 @@ const BhavList = ({ bhavs, filters }) => {
                                                 }
                                             >
                                                 <i className="ri-delete-bin-fill align-bottom me-2 text-muted"></i>
-                                                {tr.delete}
+
+                                                {translations.delete ?? ""}
                                             </Dropdown.Item>
                                         </li>
                                     )}
@@ -485,52 +541,89 @@ const BhavList = ({ bhavs, filters }) => {
                 },
             },
         ],
-        [labels, locale, tr, checkedAll, selectedIds, data, canDelete, canEdit],
+        [
+            labels,
+            locale,
+            checkedAll,
+            selectedIds,
+            data,
+            canDelete,
+            canEdit,
+            rolePrefix,
+            translations,
+        ],
     );
 
     // ─────────────────────────────────────────────────────────────────────────
     // Render
     // ─────────────────────────────────────────────────────────────────────────
+
     return (
         <React.Fragment>
-            <Head title={tr.title} />
+            <Head
+                title={
+                    translations.bhavs_list_title ?? translations.bhavs ?? ""
+                }
+            />
 
             <div className="page-content">
                 <Container fluid>
-                    <BreadCrumb title={tr.title} pageTitle={tr.pageTitle} />
+                    <BreadCrumb
+                        title={
+                            translations.bhavs_list_title ??
+                            translations.bhavs ??
+                            ""
+                        }
+                        pageTitle={
+                            translations.bhavs_page_title ??
+                            translations.bhavs ??
+                            ""
+                        }
+                    />
 
-                    {/* Single Delete Modal */}
+                    {/* ─────────────────────────────────────────────────────
+                        Single Delete Modal
+                    ───────────────────────────────────────────────────── */}
+
                     <DeleteModal
                         show={deleteModal}
                         onDeleteClick={handleDelete}
                         onCloseClick={() => setDeleteModal(false)}
-                        showPadsOption={true} // ← enable checkbox
-                        isGu={isGu}
+                        showPadsOption={true}
                     />
-                    {/* Bulk Delete Modal */}
+
+                    {/* ─────────────────────────────────────────────────────
+                        Bulk Delete Modal
+                    ───────────────────────────────────────────────────── */}
+
                     <DeleteModal
                         show={deleteModalMulti}
                         onDeleteClick={(deleteRelatedPads) => {
                             deleteMultiple(deleteRelatedPads);
                         }}
                         onCloseClick={() => setDeleteModalMulti(false)}
-                        showPadsOption={true} // ← enable checkbox
-                        isGu={isGu}
+                        showPadsOption={true}
                     />
 
                     <Row>
                         <Col lg={12}>
                             <Card>
-                                {/* Header */}
+                                {/* ─────────────────────────────────────────
+                                    Header
+                                ───────────────────────────────────────── */}
+
                                 <Card.Header className="border-0">
                                     <div className="d-flex align-items-center">
                                         <h5 className="card-title mb-0 flex-grow-1">
-                                            {isGu ? "ભાવ" : "Bhav"}
+                                            {translations.bhav ??
+                                                translations.bhavs ??
+                                                ""}
                                         </h5>
 
                                         <div className="flex-shrink-0">
                                             <div className="d-flex flex-wrap gap-2">
                                                 {/* Create */}
+
                                                 {canCreate && (
                                                     <button
                                                         className="btn btn-danger add-btn"
@@ -539,18 +632,21 @@ const BhavList = ({ bhavs, filters }) => {
                                                                 route(
                                                                     "role.category.bhavform",
                                                                     {
-                                                                        rolePrefix:
-                                                                            rolePrefix,
+                                                                        rolePrefix,
                                                                     },
                                                                 ),
                                                             )
                                                         }
                                                     >
                                                         <i className="ri-add-line align-bottom"></i>{" "}
-                                                        {tr.create}
+                                                        {
+                                                            translations.create_bhav
+                                                        }
                                                     </button>
                                                 )}
+
                                                 {/* Bulk Delete */}
+
                                                 {canDelete &&
                                                     isMultiDeleteButton && (
                                                         <button
@@ -570,12 +666,21 @@ const BhavList = ({ bhavs, filters }) => {
                                 </Card.Header>
 
                                 <Card.Body className="pt-0">
+                                    {/* ─────────────────────────────────────
+                                        Search
+                                    ───────────────────────────────────── */}
+
                                     <div className="d-flex justify-content-end mb-3">
                                         <input
                                             type="search"
                                             className="form-control"
-                                            style={{ maxWidth: 280 }}
-                                            placeholder={tr.searchPlaceholder}
+                                            style={{
+                                                maxWidth: 280,
+                                            }}
+                                            placeholder={
+                                                translations.search_bhav_placeholder ??
+                                                ""
+                                            }
                                             value={search}
                                             onChange={(e) =>
                                                 handleSearch(e.target.value)
@@ -583,12 +688,17 @@ const BhavList = ({ bhavs, filters }) => {
                                         />
                                     </div>
 
+                                    {/* Alphabet Filter */}
+
                                     <AlphabetFilter
                                         selectedLetter={selectedLetter}
                                         onSelect={handleLetterFilter}
                                     />
 
-                                    {/* Table */}
+                                    {/* ─────────────────────────────────────
+                                        Table
+                                    ───────────────────────────────────── */}
+
                                     {data && data.length > 0 ? (
                                         <>
                                             <TableContainer
@@ -601,25 +711,39 @@ const BhavList = ({ bhavs, filters }) => {
                                                 theadClass=""
                                                 thClass=""
                                                 SearchPlaceholder={
-                                                    tr.searchPlaceholder
+                                                    translations.search_bhav_placeholder ??
+                                                    ""
                                                 }
                                                 onSearch={handleSearch}
                                                 onRowClick={handleRowClick}
                                             />
 
-                                            {/* Pagination */}
+                                            {/* ─────────────────────────────
+                                                Pagination
+                                            ───────────────────────────── */}
+
                                             {bhavs.last_page > 1 && (
                                                 <div className="d-flex justify-content-between align-items-center mt-2">
                                                     <small className="text-muted">
-                                                        {tr.showing}{" "}
-                                                        {data.length} {tr.of}{" "}
-                                                        {bhavs.total}{" "}
-                                                        {tr.results}
+                                                        {translations.showing}{" "}
+                                                        {gujaratiNumber(
+                                                            data.length,
+                                                            locale,
+                                                        )}{" "}
+                                                        {translations.of}{" "}
+                                                        {gujaratiNumber(
+                                                            bhavs.total,
+                                                            locale,
+                                                        )}{" "}
+                                                        {translations.results}
                                                     </small>
 
                                                     <ul className="pagination pagination-sm mb-0">
                                                         {bhavs.links.map(
-                                                            (link, idx) => (
+                                                            (
+                                                                link: any,
+                                                                idx: number,
+                                                            ) => (
                                                                 <li
                                                                     key={idx}
                                                                     className={`page-item ${
@@ -657,15 +781,10 @@ const BhavList = ({ bhavs, filters }) => {
                                     ) : (
                                         <div className="text-center py-5">
                                             <div className="text-muted">
-                                                {tr.noData}
+                                                {translations.no_bhavs_found}
                                             </div>
                                         </div>
                                     )}
-
-                                    <ToastContainer
-                                        closeButton={false}
-                                        limit={1}
-                                    />
                                 </Card.Body>
                             </Card>
                         </Col>
@@ -676,6 +795,6 @@ const BhavList = ({ bhavs, filters }) => {
     );
 };
 
-BhavList.layout = (page) => <Layout children={page} />;
+BhavList.layout = (page: any) => <Layout children={page} />;
 
 export default BhavList;

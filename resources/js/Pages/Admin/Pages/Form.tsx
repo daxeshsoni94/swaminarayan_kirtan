@@ -1,11 +1,18 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo } from "react";
+
 import { Card, Col, Container, Form, Row } from "react-bootstrap";
+
 import BreadCrumb from "../../../Components/Common/BreadCrumb";
+
 import { Head, Link, useForm, usePage } from "@inertiajs/react";
+
 import Layout from "../../../Layouts";
-import { toast } from "react-toastify";
-import { CKEditor } from "@ckeditor/ckeditor5-react";
-import ClassicEditor from "@ckeditor/ckeditor5-build-classic";
+
+import JoditEditor from "jodit-react";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface PageItem {
     id: number;
@@ -20,70 +27,37 @@ interface Props {
     page?: PageItem | null;
 }
 
-const translations = {
-    en: {
-        pageTitleCreate: "Add Page",
-        pageTitleEdit: "Edit Page",
-        breadcrumbParent: "Pages",
-        cardTitleCreate: "New Page",
-        cardTitleEdit: "Page Details",
-        groupLabel: "Page Group",
-        groupPlaceholder: "e.g. legal, support, about",
-        titleLabel: "Title",
-        titlePlaceholder: "Enter page title",
-        slugLabel: "Slug",
-        slugPlaceholder: "e.g. terms-conditions",
-        contentLabel: "Content",
-        contentPlaceholder: "Enter page content (HTML allowed)",
-        statusLabel: "Status",
-        statusPublished: "Published",
-        statusDraft: "Draft",
-        cancel: "Cancel",
-        save: "Save",
-        update: "Update",
-        saving: "Saving...",
-        createSuccess: "Page created successfully",
-        updateSuccess: "Page updated successfully",
-        fixErrors: "Please fix the errors.",
-        groupRequired: "Please enter page group",
-        titleRequired: "Please enter title",
-        slugRequired: "Please enter slug",
-        contentRequired: "Please enter content",
-        statusRequired: "Please select status",
-    },
-    gu: {
-        pageTitleCreate: "પેજ ઉમેરો",
-        pageTitleEdit: "પેજ ફેરફાર કરો",
-        breadcrumbParent: "પેજ",
-        cardTitleCreate: "નવું પેજ",
-        cardTitleEdit: "પેજ વિગતો",
-        groupLabel: "પેજ ગ્રુપ",
-        groupPlaceholder: "ઉદા. legal, support, about",
-        titleLabel: "ટાઇટલ",
-        titlePlaceholder: "પેજનું ટાઇટલ દાખલ કરો",
-        slugLabel: "સ્લગ",
-        slugPlaceholder: "ઉદા. terms-conditions",
-        contentLabel: "કન્ટેન્ટ",
-        contentPlaceholder: "પેજ કન્ટેન્ટ દાખલ કરો (HTML ચાલે)",
-        statusLabel: "સ્થિતિ",
-        statusPublished: "પ્રકાશિત",
-        statusDraft: "ડ્રાફ્ટ",
-        cancel: "રદ કરો",
-        save: "સાચવો",
-        update: "અપડેટ કરો",
-        saving: "સાચવી રહ્યા છીએ...",
-        createSuccess: "પેજ સફળતાપૂર્વક બનાવ્યું",
-        updateSuccess: "પેજ સફળતાપૂર્વક અપડેટ થયું",
-        fixErrors: "કૃપા કરીને ભૂલો સુધારો.",
-        groupRequired: "કૃપા કરીને પેજ ગ્રુપ દાખલ કરો",
-        titleRequired: "કૃપા કરીને ટાઇટલ દાખલ કરો",
-        slugRequired: "કૃપા કરીને સ્લગ દાખલ કરો",
-        contentRequired: "કૃપા કરીને કન્ટેન્ટ દાખલ કરો",
-        statusRequired: "કૃપા કરીને સ્થિતિ પસંદ કરો",
-    },
+type TranslationFunction = (
+    key: string,
+    replacements?: Record<string, string | number>,
+) => string;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Central Translator
+// ─────────────────────────────────────────────────────────────────────────────
+
+const createTranslator = (
+    translations: Record<string, any>,
+): TranslationFunction => {
+    return (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ): string => {
+        let text = translations[key] ?? key;
+
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(new RegExp(`:${name}`, "g"), String(value));
+        });
+
+        return text;
+    };
 };
 
-const slugify = (text: string) =>
+// ─────────────────────────────────────────────────────────────────────────────
+// Slug Generator
+// ─────────────────────────────────────────────────────────────────────────────
+
+const slugify = (text: string): string =>
     text
         .toLowerCase()
         .trim()
@@ -91,18 +65,31 @@ const slugify = (text: string) =>
         .replace(/[\s_-]+/g, "-")
         .replace(/^-+|-+$/g, "");
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Page Form
+// ─────────────────────────────────────────────────────────────────────────────
+
 const PageForm: React.FC<Props> = ({ page = null }) => {
-    const pageProps = usePage().props as {
-        locale?: string;
-        errors?: Record<string, string>;
-    };
-    const { auth } = usePage().props as any;
+    const pageProps = usePage().props as any;
+
+    const { auth, translations = {}, locale } = pageProps;
+
+    // Current application locale
+    const currentLocale = locale || "gu";
+
+    // Central translator
+    const tr = useMemo(() => createTranslator(translations), [translations]);
+
+    // Dynamic role prefix
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
-    const locale = (pageProps.locale === "gu" ? "gu" : "en") as "en" | "gu";
-    const tr = translations[locale];
+
     const isEdit = !!page?.id;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Form
+    // ─────────────────────────────────────────────────────────────────────────
 
     const { data, setData, post, put, processing, errors } = useForm({
         page_group: page?.page_group ?? "",
@@ -112,13 +99,19 @@ const PageForm: React.FC<Props> = ({ page = null }) => {
         status: page?.status ?? "draft",
     });
 
-    // Auto-generate slug from title (only on create, when slug is empty or matches old auto value)
+    // ─────────────────────────────────────────────────────────────────────────
+    // Auto Generate Slug
+    // ─────────────────────────────────────────────────────────────────────────
+
     useEffect(() => {
         if (!isEdit && data.title) {
             setData("slug", slugify(data.title));
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [data.title]);
+    }, [data.title, isEdit, setData]);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Submit
+    // ─────────────────────────────────────────────────────────────────────────
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -126,53 +119,55 @@ const PageForm: React.FC<Props> = ({ page = null }) => {
         if (isEdit) {
             put(
                 route("role.pages.update", {
-                    rolePrefix: rolePrefix,
+                    rolePrefix,
                     page: page!.id,
                 }),
                 {
-                    onSuccess: () => toast.success(tr.updateSuccess),
-                    onError: () => toast.error(tr.fixErrors),
+                    preserveScroll: true,
                 },
             );
         } else {
             post(
                 route("role.pages.store", {
-                    rolePrefix: rolePrefix,
+                    rolePrefix,
                 }),
                 {
-                    onSuccess: () => toast.success(tr.createSuccess),
-                    onError: () => toast.error(tr.fixErrors),
+                    preserveScroll: true,
                 },
             );
         }
     };
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Render
+    // ─────────────────────────────────────────────────────────────────────────
+
     return (
         <React.Fragment>
-            <Head title={isEdit ? tr.pageTitleEdit : tr.pageTitleCreate} />
+            <Head
+                title={isEdit ? tr("page_title_edit") : tr("page_title_create")}
+            />
+
             <div className="page-content">
                 <Container fluid>
                     <BreadCrumb
-                        title={isEdit ? tr.pageTitleEdit : tr.pageTitleCreate}
-                        pageTitle={tr.breadcrumbParent}
+                        title={
+                            isEdit
+                                ? tr("page_title_edit")
+                                : tr("page_title_create")
+                        }
+                        pageTitle={tr("pages")}
                     />
 
                     <Row>
                         <Col lg={12}>
                             <Card>
+                                {/* Card Header */}
                                 <Card.Header>
                                     <h5 className="card-title mb-0">
                                         {isEdit
-                                            ? tr.cardTitleEdit
-                                            : tr.cardTitleCreate}
-                                        {/* {isEdit && (
-                                            <span
-                                                className="badge bg-secondary ms-2"
-                                                style={{ fontSize: "10px" }}
-                                            >
-                                                ID #{page!.id}
-                                            </span>
-                                        )} */}
+                                            ? tr("card_title_edit")
+                                            : tr("card_title_create")}
                                     </h5>
                                 </Card.Header>
 
@@ -183,17 +178,18 @@ const PageForm: React.FC<Props> = ({ page = null }) => {
                                             <Col lg={6}>
                                                 <Form.Group>
                                                     <Form.Label htmlFor="page-group">
-                                                        {tr.groupLabel}{" "}
+                                                        {tr("page_group")}{" "}
                                                         <span className="text-danger">
                                                             *
                                                         </span>
                                                     </Form.Label>
+
                                                     <Form.Control
                                                         type="text"
                                                         id="page-group"
-                                                        placeholder={
-                                                            tr.groupPlaceholder
-                                                        }
+                                                        placeholder={tr(
+                                                            "page_group_placeholder",
+                                                        )}
                                                         value={data.page_group}
                                                         onChange={(e) =>
                                                             setData(
@@ -205,9 +201,12 @@ const PageForm: React.FC<Props> = ({ page = null }) => {
                                                             !!errors.page_group
                                                         }
                                                     />
+
                                                     <Form.Control.Feedback type="invalid">
                                                         {errors.page_group ||
-                                                            tr.groupRequired}
+                                                            tr(
+                                                                "page_group_required",
+                                                            )}
                                                     </Form.Control.Feedback>
                                                 </Form.Group>
                                             </Col>
@@ -216,11 +215,12 @@ const PageForm: React.FC<Props> = ({ page = null }) => {
                                             <Col lg={6}>
                                                 <Form.Group>
                                                     <Form.Label htmlFor="page-status">
-                                                        {tr.statusLabel}{" "}
+                                                        {tr("status")}{" "}
                                                         <span className="text-danger">
                                                             *
                                                         </span>
                                                     </Form.Label>
+
                                                     <Form.Select
                                                         id="page-status"
                                                         value={data.status}
@@ -238,15 +238,19 @@ const PageForm: React.FC<Props> = ({ page = null }) => {
                                                         }
                                                     >
                                                         <option value="draft">
-                                                            {tr.statusDraft}
+                                                            {tr("draft")}
                                                         </option>
+
                                                         <option value="published">
-                                                            {tr.statusPublished}
+                                                            {tr("published")}
                                                         </option>
                                                     </Form.Select>
+
                                                     <Form.Control.Feedback type="invalid">
                                                         {errors.status ||
-                                                            tr.statusRequired}
+                                                            tr(
+                                                                "status_required",
+                                                            )}
                                                     </Form.Control.Feedback>
                                                 </Form.Group>
                                             </Col>
@@ -255,17 +259,18 @@ const PageForm: React.FC<Props> = ({ page = null }) => {
                                             <Col lg={6}>
                                                 <Form.Group>
                                                     <Form.Label htmlFor="page-title">
-                                                        {tr.titleLabel}{" "}
+                                                        {tr("title")}{" "}
                                                         <span className="text-danger">
                                                             *
                                                         </span>
                                                     </Form.Label>
+
                                                     <Form.Control
                                                         type="text"
                                                         id="page-title"
-                                                        placeholder={
-                                                            tr.titlePlaceholder
-                                                        }
+                                                        placeholder={tr(
+                                                            "title_placeholder",
+                                                        )}
                                                         value={data.title}
                                                         onChange={(e) =>
                                                             setData(
@@ -277,28 +282,32 @@ const PageForm: React.FC<Props> = ({ page = null }) => {
                                                             !!errors.title
                                                         }
                                                     />
+
                                                     <Form.Control.Feedback type="invalid">
                                                         {errors.title ||
-                                                            tr.titleRequired}
+                                                            tr(
+                                                                "title_required",
+                                                            )}
                                                     </Form.Control.Feedback>
                                                 </Form.Group>
                                             </Col>
 
-                                            {/*Slug */}
+                                            {/* Slug */}
                                             <Col lg={6}>
                                                 <Form.Group>
                                                     <Form.Label htmlFor="page-slug">
-                                                        {tr.slugLabel}{" "}
+                                                        {tr("slug")}{" "}
                                                         <span className="text-danger">
                                                             *
                                                         </span>
                                                     </Form.Label>
+
                                                     <Form.Control
                                                         type="text"
                                                         id="page-slug"
-                                                        placeholder={
-                                                            tr.slugPlaceholder
-                                                        }
+                                                        placeholder={tr(
+                                                            "slug_placeholder",
+                                                        )}
                                                         value={data.slug}
                                                         onChange={(e) =>
                                                             setData(
@@ -310,55 +319,24 @@ const PageForm: React.FC<Props> = ({ page = null }) => {
                                                             !!errors.slug
                                                         }
                                                     />
+
                                                     <Form.Control.Feedback type="invalid">
                                                         {errors.slug ||
-                                                            tr.slugRequired}
+                                                            tr("slug_required")}
                                                     </Form.Control.Feedback>
                                                 </Form.Group>
                                             </Col>
 
                                             {/* Content */}
-                                            {/* <Col lg={12}>
-                                                <Form.Group>
-                                                    <Form.Label htmlFor="page-content">
-                                                        {tr.contentLabel}{" "}
-                                                        <span className="text-danger">
-                                                            *
-                                                        </span>
-                                                    </Form.Label>
-                                                    <Form.Control
-                                                        as="textarea"
-                                                        rows={12}
-                                                        id="page-content"
-                                                        placeholder={
-                                                            tr.contentPlaceholder
-                                                        }
-                                                        value={data.content}
-                                                        onChange={(e) =>
-                                                            setData(
-                                                                "content",
-                                                                e.target.value,
-                                                            )
-                                                        }
-                                                        isInvalid={
-                                                            !!errors.content
-                                                        }
-                                                    />
-                                                    <Form.Control.Feedback type="invalid">
-                                                        {errors.content ||
-                                                            tr.contentRequired}
-                                                    </Form.Control.Feedback>
-                                                </Form.Group>
-                                            </Col> */}
-                                            {/* Content */}
                                             <Col lg={12}>
                                                 <Form.Group>
                                                     <Form.Label htmlFor="page-content">
-                                                        {tr.contentLabel}{" "}
+                                                        {tr("content")}{" "}
                                                         <span className="text-danger">
                                                             *
                                                         </span>
                                                     </Form.Label>
+
                                                     <div
                                                         className={
                                                             errors.content
@@ -366,55 +344,59 @@ const PageForm: React.FC<Props> = ({ page = null }) => {
                                                                 : ""
                                                         }
                                                     >
-                                                        <CKEditor
-                                                            editor={
-                                                                ClassicEditor
-                                                            }
-                                                            data={data.content}
-                                                            onChange={(
-                                                                _event,
-                                                                editor,
-                                                            ) => {
+                                                        <JoditEditor
+                                                            value={data.content}
+                                                            onBlur={(
+                                                                newContent,
+                                                            ) =>
                                                                 setData(
                                                                     "content",
-                                                                    editor.getData(),
-                                                                );
-                                                            }}
+                                                                    newContent,
+                                                                )
+                                                            }
                                                             config={{
-                                                                placeholder:
-                                                                    tr.contentPlaceholder,
+                                                                readonly: false,
+                                                                placeholder: tr(
+                                                                    "content_placeholder",
+                                                                ),
+                                                                height: 350,
                                                             }}
                                                         />
                                                     </div>
+
                                                     {errors.content && (
                                                         <div className="invalid-feedback d-block">
                                                             {errors.content ||
-                                                                tr.contentRequired}
+                                                                tr(
+                                                                    "content_required",
+                                                                )}
                                                         </div>
                                                     )}
                                                 </Form.Group>
                                             </Col>
                                         </Row>
 
+                                        {/* Buttons */}
                                         <div className="text-end mt-4">
                                             <Link
                                                 href={route("role.pages.list", {
-                                                    rolePrefix: rolePrefix,
+                                                    rolePrefix,
                                                 })}
                                                 className="btn btn-secondary me-2"
                                             >
-                                                {tr.cancel}
+                                                {tr("cancel")}
                                             </Link>
+
                                             <button
                                                 type="submit"
                                                 className="btn btn-success"
                                                 disabled={processing}
                                             >
                                                 {processing
-                                                    ? tr.saving
+                                                    ? tr("saving")
                                                     : isEdit
-                                                      ? tr.update
-                                                      : tr.save}
+                                                      ? tr("update")
+                                                      : tr("save")}
                                             </button>
                                         </div>
                                     </Form>
@@ -428,5 +410,6 @@ const PageForm: React.FC<Props> = ({ page = null }) => {
     );
 };
 
-PageForm.layout = (page: any) => <Layout children={page} />;
+PageForm.layout = (page: any) => <Layout>{page}</Layout>;
+
 export default PageForm;

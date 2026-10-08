@@ -1,106 +1,88 @@
-import React, { useState } from "react";
-import { useForm, usePage } from "@inertiajs/react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Head, useForm, usePage } from "@inertiajs/react";
 import InputError from "../../../Components/InputError";
 import defaultLogo from "../../../../images/logo-light.png";
 import { Button, Card, Col, Container, Form, Row } from "react-bootstrap";
 import Layout from "../../../Layouts";
 
-export default function GeneralSettings() {
-    const { settings, locale, flash } = usePage().props as any;
+const createTranslator = (translations: Record<string, any>) => {
+    return (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ): string => {
+        let text = translations[key] ?? key;
 
-    const t = {
-        en: {
-            title: "General Settings",
-            description: "Manage your application general settings.",
-            appName: "App Name",
-            appNameEn: "App Name (English)",
-            appNameGu: "App Name (Gujarati)",
-            appLogo: "App Logo",
-            recommended: "Recommended: PNG, JPG or WEBP. Max 2MB.",
-            contactEmail: "Contact Email",
-            contactPhone: "Contact Phone",
-            address: "Address",
-            addressEn: "Address (English)",
-            addressGu: "Address (Gujarati)",
-            smtpSettings: "SMTP Settings",
-            mailMailer: "Mail Mailer",
-            mailHost: "SMTP Host",
-            mailPort: "SMTP Port",
-            mailUsername: "SMTP Username",
-            mailPassword: "SMTP Password",
-            mailEncryption: "SMTP Encryption",
-            mailFromAddress: "From Email Address",
-            mailFromName: "From Name",
-            socialLinks: "Social Links",
-            facebook: "Facebook URL",
-            instagram: "Instagram URL",
-            youtube: "YouTube URL",
-            save: "Save Changes",
-            saving: "Saving...",
-            updated: "Settings updated successfully.",
-        },
-        gu: {
-            title: "સામાન્ય સેટિંગ્સ",
-            description: "તમારી એપ્લિકેશનની સામાન્ય સેટિંગ્સ મેનેજ કરો.",
-            appName: "એપનું નામ",
-            appNameEn: "એપનું નામ (અંગ્રેજી)",
-            appNameGu: "એપનું નામ (ગુજરાતી)",
-            appLogo: "એપ લોગો",
-            recommended: "ભલામણ: PNG, JPG અથવા WEBP. મહત્તમ 2MB.",
-            contactEmail: "કોન્ટેક્ટ ઇમેઇલ",
-            contactPhone: "કોન્ટેક્ટ ફોન",
-            address: "સરનામું",
-            addressEn: "સરનામું (અંગ્રેજી)",
-            addressGu: "સરનામું (ગુજરાતી)",
-            smtpSettings: "SMTP સેટિંગ્સ",
-            mailMailer: "મેઇલ મેઇલર",
-            mailHost: "SMTP હોસ્ટ",
-            mailPort: "SMTP પોર્ટ",
-            mailUsername: "SMTP યુઝરનેમ",
-            mailPassword: "SMTP પાસવર્ડ",
-            mailEncryption: "SMTP એન્ક્રિપ્શન",
-            mailFromAddress: "From ઇમેઇલ સરનામું",
-            mailFromName: "From નામ",
-            socialLinks: "સોશિયલ લિંક્સ",
-            facebook: "ફેસબુક URL",
-            instagram: "ઇન્સ્ટાગ્રામ URL",
-            youtube: "યુટ્યુબ URL",
-            save: "ફેરફારો સાચવો",
-            saving: "સાચવી રહ્યા છીએ...",
-            updated: "સેટિંગ્સ સફળતાપૂર્વક અપડેટ થઈ ગઈ છે.",
-        },
-    }[locale === "gu" ? "gu" : "en"];
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = String(text).replace(
+                new RegExp(`:${name}`, "g"),
+                String(value),
+            );
+        });
+
+        return text;
+    };
+};
+
+export default function GeneralSettings() {
+    const page = usePage().props as any;
+
+    const { settings = {}, locale, translations = {}, languages = [] } = page;
+
+    const currentLocale = locale || "gu";
+    const tr = useMemo(() => createTranslator(translations), [translations]);
 
     const [preview, setPreview] = useState(
         settings.app_logo ? `/storage/${settings.app_logo}` : defaultLogo,
     );
 
-    const { data, setData, post, errors, processing, recentlySuccessful } =
-        useForm({
-            app_name: {
-                en: settings.app_name?.en || "",
-                gu: settings.app_name?.gu || "",
+    // ── Dynamic multilingual initial values (same pattern as NameForm) ─────
+    const initialAppName = useMemo(() => {
+        return languages.reduce(
+            (values: Record<string, string>, language: any) => {
+                values[language.code] =
+                    settings.app_name?.[language.code] ?? "";
+                return values;
             },
-            contact_email: settings.contact_email || "",
-            contact_phone: settings.contact_phone || "",
-            address: {
-                en: settings.address?.en || "",
-                gu: settings.address?.gu || "",
-            },
+            {},
+        );
+    }, [languages, settings.app_name]);
 
-            mail_mailer: settings.mail_mailer || "smtp",
-            mail_host: settings.mail_host || "",
-            mail_port: settings.mail_port || "587",
-            mail_username: settings.mail_username || "",
-            mail_password: settings.mail_password || "",
-            mail_encryption: settings.mail_encryption || "tls",
-            mail_from_address: settings.mail_from_address || "",
-            mail_from_name: settings.mail_from_name || "",
-            facebook_url: settings.facebook_url || "",
-            instagram_url: settings.instagram_url || "",
-            youtube_url: settings.youtube_url || "",
-            app_logo: null as File | null,
+    const initialAddress = useMemo(() => {
+        return languages.reduce(
+            (values: Record<string, string>, language: any) => {
+                values[language.code] = settings.address?.[language.code] ?? "";
+                return values;
+            },
+            {},
+        );
+    }, [languages, settings.address]);
+
+    const { data, setData, post, errors, processing } = useForm({
+        app_name: initialAppName,
+        contact_email: settings.contact_email || "",
+        contact_phone: settings.contact_phone || "",
+        address: initialAddress,
+        mail_mailer: settings.mail_mailer || "smtp",
+        mail_host: settings.mail_host || "",
+        mail_port: settings.mail_port || "587",
+        mail_username: settings.mail_username || "",
+        mail_password: settings.mail_password || "",
+        mail_encryption: settings.mail_encryption || "tls",
+        mail_from_address: settings.mail_from_address || "",
+        mail_from_name: settings.mail_from_name || "",
+        facebook_url: settings.facebook_url || "",
+        instagram_url: settings.instagram_url || "",
+        youtube_url: settings.youtube_url || "",
+        app_logo: null as File | null,
+    });
+
+    // Update only the current locale
+    const setTranslation = (field: "app_name" | "address", text: string) => {
+        setData(field, {
+            ...data[field],
+            [currentLocale]: text,
         });
+    };
 
     const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -119,71 +101,65 @@ export default function GeneralSettings() {
 
     const submit = (e: React.FormEvent) => {
         e.preventDefault();
-        post(route("admin.settings.update"), {
+
+        post(route("role.settings.update", { rolePrefix: page.rolePrefix }), {
             forceFormData: true,
             preserveScroll: true,
         });
     };
 
+    // Current language object (for label)
+    const currentLanguage = languages.find(
+        (l: any) => l.code === currentLocale,
+    );
+
     return (
         <React.Fragment>
+            <Head title={tr("general_settings") || "General Settings"} />
             <div className="page-content">
                 <Container fluid>
                     <Row>
                         <Col lg={12}>
-                            <h4 className="mb-3">{t.title}</h4>
+                            <h4 className="mb-3">{tr("general_settings")}</h4>
 
                             <Card>
                                 <Card.Body>
                                     <p className="text-muted mb-4">
-                                        {t.description}
+                                        {tr("general_settings_description")}
                                     </p>
 
                                     <Form onSubmit={submit}>
                                         <Row>
-                                            {/* App Name EN */}
+                                            {/* App Name - only current language */}
                                             <Col lg={6} className="mb-3">
                                                 <Form.Label>
-                                                    {t.appNameEn}
+                                                    {tr("app_name")}
+                                                    {currentLanguage
+                                                        ? ` (${currentLanguage.name})`
+                                                        : ""}
                                                 </Form.Label>
-                                                <Form.Control
-                                                    type="text"
-                                                    value={data.app_name.en}
-                                                    onChange={(e) =>
-                                                        setData("app_name", {
-                                                            ...data.app_name,
-                                                            en: e.target.value,
-                                                        })
-                                                    }
-                                                    required
-                                                />
-                                                <InputError
-                                                    message={
-                                                        errors["app_name.en"]
-                                                    }
-                                                    className="mt-2"
-                                                />
-                                            </Col>
 
-                                            {/* App Name GU */}
-                                            <Col lg={6} className="mb-3">
-                                                <Form.Label>
-                                                    {t.appNameGu}
-                                                </Form.Label>
                                                 <Form.Control
                                                     type="text"
-                                                    value={data.app_name.gu}
+                                                    value={
+                                                        data.app_name?.[
+                                                            currentLocale
+                                                        ] || ""
+                                                    }
                                                     onChange={(e) =>
-                                                        setData("app_name", {
-                                                            ...data.app_name,
-                                                            gu: e.target.value,
-                                                        })
+                                                        setTranslation(
+                                                            "app_name",
+                                                            e.target.value,
+                                                        )
                                                     }
                                                     required
                                                 />
+
                                                 <InputError
                                                     message={
-                                                        errors["app_name.gu"]
+                                                        errors[
+                                                            `app_name.${currentLocale}`
+                                                        ]
                                                     }
                                                     className="mt-2"
                                                 />
@@ -192,8 +168,9 @@ export default function GeneralSettings() {
                                             {/* App Logo */}
                                             <Col lg={12} className="mb-4">
                                                 <Form.Label>
-                                                    {t.appLogo}
+                                                    {tr("app_logo")}
                                                 </Form.Label>
+
                                                 <div className="d-flex align-items-center gap-3">
                                                     <div
                                                         className="border rounded bg-light d-flex align-items-center justify-content-center"
@@ -205,7 +182,7 @@ export default function GeneralSettings() {
                                                     >
                                                         <img
                                                             src={preview}
-                                                            alt="Logo"
+                                                            alt={tr("app_logo")}
                                                             style={{
                                                                 maxWidth: 75,
                                                                 maxHeight: 50,
@@ -218,6 +195,7 @@ export default function GeneralSettings() {
                                                             }}
                                                         />
                                                     </div>
+
                                                     <div>
                                                         <Form.Control
                                                             type="file"
@@ -226,9 +204,13 @@ export default function GeneralSettings() {
                                                                 handleLogoChange
                                                             }
                                                         />
+
                                                         <small className="text-muted d-block mt-2">
-                                                            {t.recommended}
+                                                            {tr(
+                                                                "app_logo_recommended",
+                                                            )}
                                                         </small>
+
                                                         <InputError
                                                             message={
                                                                 errors.app_logo
@@ -242,7 +224,7 @@ export default function GeneralSettings() {
                                             {/* Contact Email */}
                                             <Col lg={6} className="mb-3">
                                                 <Form.Label>
-                                                    {t.contactEmail}
+                                                    {tr("contact_email")}
                                                 </Form.Label>
                                                 <Form.Control
                                                     type="email"
@@ -265,7 +247,7 @@ export default function GeneralSettings() {
                                             {/* Contact Phone */}
                                             <Col lg={6} className="mb-3">
                                                 <Form.Label>
-                                                    {t.contactPhone}
+                                                    {tr("contact_phone")}
                                                 </Form.Label>
                                                 <Form.Control
                                                     type="text"
@@ -285,69 +267,90 @@ export default function GeneralSettings() {
                                                 />
                                             </Col>
 
-                                            {/* Address EN */}
-                                            <Col lg={6} className="mb-3">
+                                            {/* Address - only current language */}
+                                            <Col lg={12} className="mb-3">
                                                 <Form.Label>
-                                                    {t.addressEn}
+                                                    {tr("address")}
+                                                    {currentLanguage
+                                                        ? ` (${currentLanguage.name})`
+                                                        : ""}
                                                 </Form.Label>
+
                                                 <Form.Control
                                                     as="textarea"
                                                     rows={3}
-                                                    value={data.address.en}
+                                                    value={
+                                                        data.address?.[
+                                                            currentLocale
+                                                        ] || ""
+                                                    }
                                                     onChange={(e) =>
-                                                        setData("address", {
-                                                            ...data.address,
-                                                            en: e.target.value,
-                                                        })
+                                                        setTranslation(
+                                                            "address",
+                                                            e.target.value,
+                                                        )
                                                     }
                                                 />
+
                                                 <InputError
                                                     message={
-                                                        errors["address.en"]
+                                                        errors[
+                                                            `address.${currentLocale}`
+                                                        ]
                                                     }
                                                     className="mt-2"
                                                 />
                                             </Col>
 
-                                            {/* Address GU */}
-                                            <Col lg={6} className="mb-3">
-                                                <Form.Label>
-                                                    {t.addressGu}
-                                                </Form.Label>
-                                                <Form.Control
-                                                    as="textarea"
-                                                    rows={3}
-                                                    value={data.address.gu}
-                                                    onChange={(e) =>
-                                                        setData("address", {
-                                                            ...data.address,
-                                                            gu: e.target.value,
-                                                        })
-                                                    }
-                                                />
-                                                <InputError
-                                                    message={
-                                                        errors["address.gu"]
-                                                    }
-                                                    className="mt-2"
-                                                />
+                                            {/* All languages reference (optional but useful) */}
+                                            <Col lg={12} className="mb-3">
+                                                <div className="p-2 rounded border bg-light">
+                                                    <small className="text-muted d-block mb-1">
+                                                        {tr(
+                                                            "both_languages_reference",
+                                                        )}
+                                                    </small>
+                                                    <div
+                                                        className="d-flex flex-wrap gap-3"
+                                                        style={{
+                                                            fontSize: "13px",
+                                                        }}
+                                                    >
+                                                        {languages.map(
+                                                            (language: any) => (
+                                                                <span
+                                                                    key={
+                                                                        language.code
+                                                                    }
+                                                                >
+                                                                    <strong>
+                                                                        {language.code.toUpperCase()}
+                                                                        :
+                                                                    </strong>{" "}
+                                                                    {data
+                                                                        .app_name?.[
+                                                                        language
+                                                                            .code
+                                                                    ] || "—"}
+                                                                </span>
+                                                            ),
+                                                        )}
+                                                    </div>
+                                                </div>
                                             </Col>
 
                                             {/* SMTP Settings */}
                                             <Col lg={12}>
                                                 <hr className="my-4" />
-
                                                 <h5 className="mb-3">
-                                                    {t.smtpSettings}
+                                                    {tr("smtp_settings")}
                                                 </h5>
                                             </Col>
 
-                                            {/* Mail Mailer */}
                                             <Col lg={6} className="mb-3">
                                                 <Form.Label>
-                                                    {t.mailMailer}
+                                                    {tr("mail_mailer")}
                                                 </Form.Label>
-
                                                 <Form.Control
                                                     type="text"
                                                     value={data.mail_mailer}
@@ -359,19 +362,16 @@ export default function GeneralSettings() {
                                                     }
                                                     placeholder="smtp"
                                                 />
-
                                                 <InputError
                                                     message={errors.mail_mailer}
                                                     className="mt-2"
                                                 />
                                             </Col>
 
-                                            {/* SMTP Host */}
                                             <Col lg={6} className="mb-3">
                                                 <Form.Label>
-                                                    {t.mailHost}
+                                                    {tr("mail_host")}
                                                 </Form.Label>
-
                                                 <Form.Control
                                                     type="text"
                                                     value={data.mail_host}
@@ -383,19 +383,16 @@ export default function GeneralSettings() {
                                                     }
                                                     placeholder="smtp.gmail.com"
                                                 />
-
                                                 <InputError
                                                     message={errors.mail_host}
                                                     className="mt-2"
                                                 />
                                             </Col>
 
-                                            {/* SMTP Port */}
                                             <Col lg={6} className="mb-3">
                                                 <Form.Label>
-                                                    {t.mailPort}
+                                                    {tr("mail_port")}
                                                 </Form.Label>
-
                                                 <Form.Control
                                                     type="number"
                                                     value={data.mail_port}
@@ -407,19 +404,16 @@ export default function GeneralSettings() {
                                                     }
                                                     placeholder="587"
                                                 />
-
                                                 <InputError
                                                     message={errors.mail_port}
                                                     className="mt-2"
                                                 />
                                             </Col>
 
-                                            {/* SMTP Username */}
                                             <Col lg={6} className="mb-3">
                                                 <Form.Label>
-                                                    {t.mailUsername}
+                                                    {tr("mail_username")}
                                                 </Form.Label>
-
                                                 <Form.Control
                                                     type="email"
                                                     value={data.mail_username}
@@ -431,7 +425,6 @@ export default function GeneralSettings() {
                                                     }
                                                     placeholder="your@gmail.com"
                                                 />
-
                                                 <InputError
                                                     message={
                                                         errors.mail_username
@@ -440,12 +433,10 @@ export default function GeneralSettings() {
                                                 />
                                             </Col>
 
-                                            {/* SMTP Password */}
                                             <Col lg={6} className="mb-3">
                                                 <Form.Label>
-                                                    {t.mailPassword}
+                                                    {tr("mail_password")}
                                                 </Form.Label>
-
                                                 <Form.Control
                                                     type="password"
                                                     value={data.mail_password}
@@ -457,7 +448,6 @@ export default function GeneralSettings() {
                                                     }
                                                     placeholder="App Password"
                                                 />
-
                                                 <InputError
                                                     message={
                                                         errors.mail_password
@@ -466,12 +456,10 @@ export default function GeneralSettings() {
                                                 />
                                             </Col>
 
-                                            {/* Encryption */}
                                             <Col lg={6} className="mb-3">
                                                 <Form.Label>
-                                                    {t.mailEncryption}
+                                                    {tr("mail_encryption")}
                                                 </Form.Label>
-
                                                 <Form.Select
                                                     value={data.mail_encryption}
                                                     onChange={(e) =>
@@ -482,7 +470,7 @@ export default function GeneralSettings() {
                                                     }
                                                 >
                                                     <option value="">
-                                                        None
+                                                        {tr("none")}
                                                     </option>
                                                     <option value="tls">
                                                         TLS
@@ -491,7 +479,6 @@ export default function GeneralSettings() {
                                                         SSL
                                                     </option>
                                                 </Form.Select>
-
                                                 <InputError
                                                     message={
                                                         errors.mail_encryption
@@ -500,12 +487,10 @@ export default function GeneralSettings() {
                                                 />
                                             </Col>
 
-                                            {/* From Address */}
                                             <Col lg={6} className="mb-3">
                                                 <Form.Label>
-                                                    {t.mailFromAddress}
+                                                    {tr("mail_from_address")}
                                                 </Form.Label>
-
                                                 <Form.Control
                                                     type="email"
                                                     value={
@@ -519,7 +504,6 @@ export default function GeneralSettings() {
                                                     }
                                                     placeholder="xyz123@gmail.com"
                                                 />
-
                                                 <InputError
                                                     message={
                                                         errors.mail_from_address
@@ -528,12 +512,10 @@ export default function GeneralSettings() {
                                                 />
                                             </Col>
 
-                                            {/* From Name */}
                                             <Col lg={6} className="mb-3">
                                                 <Form.Label>
-                                                    {t.mailFromName}
+                                                    {tr("mail_from_name")}
                                                 </Form.Label>
-
                                                 <Form.Control
                                                     type="text"
                                                     value={data.mail_from_name}
@@ -545,7 +527,6 @@ export default function GeneralSettings() {
                                                     }
                                                     placeholder="My Application"
                                                 />
-
                                                 <InputError
                                                     message={
                                                         errors.mail_from_name
@@ -558,13 +539,13 @@ export default function GeneralSettings() {
                                             <Col lg={12}>
                                                 <hr className="my-4" />
                                                 <h5 className="mb-3 mt-2">
-                                                    {t.socialLinks}
+                                                    {tr("social_links")}
                                                 </h5>
                                             </Col>
 
                                             <Col lg={4} className="mb-3">
                                                 <Form.Label>
-                                                    {t.facebook}
+                                                    {tr("facebook_url")}
                                                 </Form.Label>
                                                 <Form.Control
                                                     type="url"
@@ -587,7 +568,7 @@ export default function GeneralSettings() {
 
                                             <Col lg={4} className="mb-3">
                                                 <Form.Label>
-                                                    {t.instagram}
+                                                    {tr("instagram_url")}
                                                 </Form.Label>
                                                 <Form.Control
                                                     type="url"
@@ -610,7 +591,7 @@ export default function GeneralSettings() {
 
                                             <Col lg={4} className="mb-3">
                                                 <Form.Label>
-                                                    {t.youtube}
+                                                    {tr("youtube_url")}
                                                 </Form.Label>
                                                 <Form.Control
                                                     type="url"
@@ -639,18 +620,12 @@ export default function GeneralSettings() {
                                                 {processing ? (
                                                     <>
                                                         <span className="spinner-border spinner-border-sm me-2" />
-                                                        {t.saving}
+                                                        {tr("saving")}
                                                     </>
                                                 ) : (
-                                                    t.save
+                                                    tr("save_changes")
                                                 )}
                                             </Button>
-
-                                            {recentlySuccessful && (
-                                                <span className="text-success">
-                                                    {t.updated}
-                                                </span>
-                                            )}
                                         </div>
                                     </Form>
                                 </Card.Body>

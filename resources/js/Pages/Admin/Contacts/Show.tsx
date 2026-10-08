@@ -1,9 +1,14 @@
-import React from "react";
+import React, { useMemo } from "react";
+
 import { Card, Col, Container, Form, Row } from "react-bootstrap";
+
 import BreadCrumb from "../../../Components/Common/BreadCrumb";
+
 import { Head, Link, router, usePage } from "@inertiajs/react";
+
 import Layout from "../../../Layouts";
-import { toast } from "react-toastify";
+
+import { gujaratiNumber } from "../../../utils/number";
 
 interface ContactItem {
     id: number;
@@ -20,71 +25,84 @@ interface Props {
     contact: ContactItem;
 }
 
-const translations = {
-    en: {
-        pageTitle: "Contact Details",
-        breadcrumbParent: "Contacts",
-        name: "Name",
-        email: "Email",
-        phone: "Phone",
-        reason: "Reason for Contact",
-        status: "Status",
-        submittedAt: "Submitted At",
-        back: "Back",
-        updateStatus: "Update Status",
-        statusNew: "New",
-        statusRead: "Read",
-        statusResolved: "Resolved",
-        statusSuccess: "Status updated successfully",
-    },
-    gu: {
-        pageTitle: "સંપર્ક વિગતો",
-        breadcrumbParent: "સંપર્કો",
-        name: "નામ",
-        email: "ઈમેઈલ",
-        phone: "ફોન",
-        reason: "સંપર્કનું કારણ",
-        status: "સ્થિતિ",
-        submittedAt: "સબમિટ તારીખ",
-        back: "પાછા",
-        updateStatus: "સ્થિતિ અપડેટ કરો",
-        statusNew: "નવું",
-        statusRead: "વાંચેલું",
-        statusResolved: "ઉકેલાયેલું",
-        statusSuccess: "સ્થિતિ સફળતાપૂર્વક અપડેટ થઈ",
-    },
+const createTranslator = (translations: Record<string, any>) => {
+    return (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ): string => {
+        let text = translations[key] ?? key;
+
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(`:${name}`, String(value));
+        });
+
+        return text;
+    };
+};
+
+const formatDate = (value: any, locale: string): string => {
+    if (!value) {
+        return "—";
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return String(value);
+    }
+
+    const parts = new Intl.DateTimeFormat(locale, {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+    }).formatToParts(date);
+
+    const day = parts.find((part) => part.type === "day")?.value ?? "";
+
+    const month = parts.find((part) => part.type === "month")?.value ?? "";
+
+    const year = parts.find((part) => part.type === "year")?.value ?? "";
+
+    const formatted = `${day} ${month}, ${year}`;
+
+    return gujaratiNumber(formatted, locale);
 };
 
 const Show: React.FC<Props> = ({ contact }) => {
-    const page = usePage().props as { locale?: string };
-    const locale = (page.locale === "gu" ? "gu" : "en") as "en" | "gu";
-    const tr = translations[locale];
-    const { auth } = usePage().props as any;
+    const page = usePage().props as any;
+
+    const { auth, translations = {}, locale } = page;
+
+    const currentLocale = locale || "gu";
+
+    const tr = useMemo(() => createTranslator(translations), [translations]);
+
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
 
-    const handleStatusChange = (status: string) => {
+    const handleStatusChange = (status: "new" | "read" | "resolved") => {
         router.put(
             route("role.contacts.update-status", {
-                rolePrefix: rolePrefix,
+                rolePrefix,
                 contact: contact.id,
             }),
             { status },
             {
-                onSuccess: () => toast.success(tr.statusSuccess),
+                preserveScroll: true,
             },
         );
     };
 
     return (
         <React.Fragment>
-            <Head title={tr.pageTitle} />
+            <Head title={tr("contact_details")} />
+
             <div className="page-content">
                 <Container fluid>
                     <BreadCrumb
-                        title={tr.pageTitle}
-                        pageTitle={tr.breadcrumbParent}
+                        title={tr("contact_details")}
+                        pageTitle={tr("contacts")}
                     />
 
                     <Row>
@@ -92,74 +110,107 @@ const Show: React.FC<Props> = ({ contact }) => {
                             <Card>
                                 <Card.Header>
                                     <h5 className="card-title mb-0">
-                                        {tr.pageTitle}{" "}
+                                        {tr("contact_details")}{" "}
                                         <span className="badge bg-secondary ms-2">
-                                            #{contact.id}
+                                            #
+                                            {gujaratiNumber(
+                                                contact.id,
+                                                currentLocale,
+                                            )}
                                         </span>
                                     </h5>
                                 </Card.Header>
+
                                 <Card.Body>
                                     <Row className="g-3">
+                                        {/* Name */}
                                         <Col md={6}>
                                             <label className="form-label text-muted">
-                                                {tr.name}
+                                                {tr("name")}
                                             </label>
+
                                             <div className="fw-semibold">
                                                 {contact.name}
                                             </div>
                                         </Col>
+
+                                        {/* Email */}
                                         <Col md={6}>
                                             <label className="form-label text-muted">
-                                                {tr.email}
+                                                {tr("email")}
                                             </label>
+
                                             <div>{contact.email}</div>
                                         </Col>
+
+                                        {/* Phone */}
                                         <Col md={6}>
                                             <label className="form-label text-muted">
-                                                {tr.phone}
+                                                {tr("phone")}
                                             </label>
-                                            <div>{contact.phone || "—"}</div>
-                                        </Col>
-                                        <Col md={6}>
-                                            <label className="form-label text-muted">
-                                                {tr.submittedAt}
-                                            </label>
+
                                             <div>
-                                                {contact.created_at
-                                                    ? new Date(
-                                                          contact.created_at,
-                                                      ).toLocaleString("en-IN")
+                                                {contact.phone
+                                                    ? gujaratiNumber(
+                                                          contact.phone,
+                                                          currentLocale,
+                                                      )
                                                     : "—"}
                                             </div>
                                         </Col>
+
+                                        {/* Submitted At */}
+                                        <Col md={6}>
+                                            <label className="form-label text-muted">
+                                                {tr("submitted_at")}
+                                            </label>
+
+                                            <div>
+                                                {formatDate(
+                                                    contact.created_at,
+                                                    currentLocale,
+                                                )}
+                                            </div>
+                                        </Col>
+
+                                        {/* Reason */}
                                         <Col md={12}>
                                             <label className="form-label text-muted">
-                                                {tr.reason}
+                                                {tr("reason")}
                                             </label>
+
                                             <div className="p-3 border rounded bg-light">
                                                 {contact.reason_for_contact}
                                             </div>
                                         </Col>
+
+                                        {/* Status */}
                                         <Col md={6}>
                                             <label className="form-label">
-                                                {tr.status}
+                                                {tr("status")}
                                             </label>
+
                                             <Form.Select
                                                 value={contact.status}
                                                 onChange={(e) =>
                                                     handleStatusChange(
-                                                        e.target.value,
+                                                        e.target.value as
+                                                            | "new"
+                                                            | "read"
+                                                            | "resolved",
                                                     )
                                                 }
                                             >
                                                 <option value="new">
-                                                    {tr.statusNew}
+                                                    {tr("status_new")}
                                                 </option>
+
                                                 <option value="read">
-                                                    {tr.statusRead}
+                                                    {tr("status_read")}
                                                 </option>
+
                                                 <option value="resolved">
-                                                    {tr.statusResolved}
+                                                    {tr("status_resolved")}
                                                 </option>
                                             </Form.Select>
                                         </Col>
@@ -168,11 +219,11 @@ const Show: React.FC<Props> = ({ contact }) => {
                                     <div className="mt-4">
                                         <Link
                                             href={route("role.contacts.list", {
-                                                rolePrefix: rolePrefix,
+                                                rolePrefix,
                                             })}
                                             className="btn btn-secondary"
                                         >
-                                            {tr.back}
+                                            {tr("back")}
                                         </Link>
                                     </div>
                                 </Card.Body>
@@ -186,4 +237,5 @@ const Show: React.FC<Props> = ({ contact }) => {
 };
 
 Show.layout = (page: any) => <Layout children={page} />;
+
 export default Show;

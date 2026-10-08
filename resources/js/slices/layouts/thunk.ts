@@ -39,7 +39,21 @@ export const changeLayout = (layout : any) => async (dispatch : any) => {
 export const changeLayoutMode = (layoutMode : any) => async (dispatch : any) => {
     try {
         changeHTMLAttribute("data-bs-theme", layoutMode);
+        if (typeof sessionStorage !== 'undefined') {
+            sessionStorage.setItem("data-layout-mode", layoutMode);
+        }
         dispatch(changeLayoutModeAction(layoutMode));
+        
+        if (layoutMode === "dark") {
+            changeHTMLAttribute("data-topbar", "dark");
+            dispatch(changeTopbarThemeAction("dark"));
+            changeHTMLAttribute("data-sidebar", "dark");
+            dispatch(changeSidebarThemeAction("dark"));
+            if (typeof sessionStorage !== 'undefined') {
+                sessionStorage.setItem("data-topbar", "dark");
+                sessionStorage.setItem("data-sidebar", "dark");
+            }
+        }
     } catch (error) { }
 };
 
@@ -50,9 +64,9 @@ export const changeLayoutMode = (layoutMode : any) => async (dispatch : any) => 
 export const changeSidebarTheme = (theme : any) => async (dispatch : any) => {
     try {
         changeHTMLAttribute("data-sidebar", theme);
+        if (typeof sessionStorage !== 'undefined') sessionStorage.setItem("data-sidebar", theme);
         dispatch(changeSidebarThemeAction(theme));
     } catch (error) {
-        // console.log(error);
     }
 };
 
@@ -93,10 +107,9 @@ export const changeLayoutPosition = (layoutposition : any) => async (dispatch : 
 export const changeTopbarTheme = (topbarTheme : any) => async (dispatch : any) => {
     try {
         changeHTMLAttribute("data-topbar", topbarTheme);
+        if (typeof sessionStorage !== 'undefined') sessionStorage.setItem("data-topbar", topbarTheme);
         dispatch(changeTopbarThemeAction(topbarTheme));
-
     } catch (error) {
-        // console.log(error);
     }
 };
 

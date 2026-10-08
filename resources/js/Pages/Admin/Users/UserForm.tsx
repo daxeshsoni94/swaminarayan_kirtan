@@ -1,12 +1,8 @@
-import React, { useEffect } from "react";
+import React, { useMemo } from "react";
 import { Card, Col, Container, Form, Row } from "react-bootstrap";
 import BreadCrumb from "../../../Components/Common/BreadCrumb";
 import { Head, Link, useForm, usePage } from "@inertiajs/react";
 import Layout from "../../../Layouts";
-import { toast } from "react-toastify";
-
-type Trans = { en: string; gu: string };
-
 interface Role {
     id: number;
     name: string;
@@ -14,18 +10,20 @@ interface Role {
 
 interface Language {
     id: number;
+    code?: string;
     name:
         | string
         | {
               en?: string;
               gu?: string;
+              [key: string]: string | undefined;
           };
 }
 
 interface UserFormProps {
     user?: {
         id: number;
-        name: Trans | string;
+        name: Record<string, string> | string;
         email: string;
         phone: string | null;
         role_id: number | null;
@@ -36,60 +34,96 @@ interface UserFormProps {
     languages: Language[];
 }
 
+const createTranslator = (translations: Record<string, any>) => {
+    return (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ): string => {
+        let text = translations[key] ?? key;
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = String(text).replace(
+                new RegExp(`:${name}`, "g"),
+                String(value),
+            );
+        });
+        return text;
+    };
+};
+
 const UserForm = ({
     user = null,
     roles = [],
     languages = [],
 }: UserFormProps) => {
-    const page = usePage().props as {
-        locale?: string;
-        errors?: Record<string, string>;
-    };
-    const locale = (page.locale === "gu" ? "gu" : "en") as "en" | "gu";
-    const isGu = locale === "gu";
-    const { auth } = usePage().props as any;
+    const page = usePage().props as any;
+    const { auth, translations = {}, locale: pageLocale } = page;
+
+    const currentLocale = pageLocale || "gu";
+    const tr = useMemo(() => createTranslator(translations), [translations]);
+
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
+
     const isEdit = !!user?.id;
 
-    console.log("LANGUAGES:", languages);
-    const resolveName = (name: Trans | string | undefined): Trans => {
-        if (!name) return { en: "", gu: "" };
-        if (typeof name === "string") return { en: name, gu: name };
-        return {
-            en: name.en ?? "",
-            gu: name.gu ?? "",
-        };
-    };
-
+    // Helper to get language display name
     const getLanguageName = (name: Language["name"]) => {
         if (typeof name === "string") {
             return name;
         }
 
-        return name[locale] ?? name.en ?? name.gu ?? "";
+        if (!name) {
+            return "";
+        }
+
+        return (
+            name[currentLocale] ??
+            Object.values(name).find(
+                (value) => typeof value === "string" && value.trim() !== "",
+            ) ??
+            ""
+        );
     };
 
+    // Dynamic multilingual initial name (supports any languages from DB)
+    const initialName = useMemo(() => {
+        // If languages have `code`, use it. Fallback to en/gu for older data.
+        const codes = languages
+            .map((language) => language.code)
+            .filter(
+                (code): code is string =>
+                    typeof code === "string" && code.trim() !== "",
+            );
+
+        const result: Record<string, string> = {};
+
+        codes.forEach((code) => {
+            if (typeof user?.name === "string") {
+                result[code] = user.name;
+            } else {
+                result[code] = user?.name?.[code] ?? "";
+            }
+        });
+
+        return result;
+    }, [languages, user]);
+
     const { data, setData, post, put, processing, errors } = useForm({
-        name: resolveName(user?.name),
+        name: initialName,
         email: user?.email ?? "",
         phone: user?.phone ?? "",
         role_id: user?.role_id ?? "",
         language_id: user?.language_id ?? "",
         status: user?.status ?? "unblocked",
         password: "",
-        locale,
     });
 
-    useEffect(() => {
-        setData("locale", locale);
-    }, [locale]);
-
+    // Update only the current locale
     const setName = (text: string) => {
         setData("name", {
             ...data.name,
-            [locale]: text,
+            [currentLocale]: text,
         });
     };
 
@@ -99,97 +133,51 @@ const UserForm = ({
         if (isEdit) {
             put(
                 route("role.users.update", {
-                    rolePrefix: rolePrefix,
+                    rolePrefix,
                     user: user!.id,
                 }),
                 {
-                    onSuccess: () =>
-                        toast.success(
-                            isGu
-                                ? "વપરાશકર્તા સફળતાપૂર્વક અપડેટ થયો"
-                                : "User updated successfully",
-                        ),
-                    onError: () =>
-                        toast.error(
-                            isGu
-                                ? "કૃપા કરીને ભૂલો સુધારો."
-                                : "Please fix the errors.",
-                        ),
+                    preserveScroll: true,
                 },
             );
         } else {
             post(
                 route("role.users.store", {
-                    rolePrefix: rolePrefix,
+                    rolePrefix,
                 }),
                 {
-                    onSuccess: () =>
-                        toast.success(
-                            isGu
-                                ? "વપરાશકર્તા સફળતાપૂર્વક બનાવ્યો"
-                                : "User created successfully",
-                        ),
-                    onError: () =>
-                        toast.error(
-                            isGu
-                                ? "કૃપા કરીને ભૂલો સુધારો."
-                                : "Please fix the errors.",
-                        ),
+                    preserveScroll: true,
                 },
             );
         }
     };
 
+    const pageTitle = isEdit ? tr("edit_user") : tr("add_user");
+    const cardTitle = isEdit ? tr("user_details") : tr("new_user");
+
     return (
         <React.Fragment>
-            <Head
-                title={
-                    isEdit
-                        ? isGu
-                            ? "વપરાશકર્તા ફેરફાર કરો"
-                            : "Edit User"
-                        : isGu
-                          ? "વપરાશકર્તા ઉમેરો"
-                          : "Add User"
-                }
-            />
+            <Head title={pageTitle} />
             <div className="page-content">
                 <Container fluid>
-                    <BreadCrumb
-                        title={
-                            isEdit
-                                ? isGu
-                                    ? "વપરાશકર્તા ફેરફાર કરો"
-                                    : "Edit User"
-                                : isGu
-                                  ? "વપરાશકર્તા ઉમેરો"
-                                  : "Add User"
-                        }
-                        pageTitle={isGu ? "વપરાશકર્તાઓ" : "Users"}
-                    />
+                    <BreadCrumb title={pageTitle} pageTitle={tr("users")} />
 
                     <Row>
                         <Col lg={12}>
                             <Card>
                                 <Card.Header>
                                     <h5 className="card-title mb-0">
-                                        {isEdit
-                                            ? isGu
-                                                ? "વપરાશકર્તા વિગતો"
-                                                : "User Details"
-                                            : isGu
-                                              ? "નવો વપરાશકર્તા"
-                                              : "New User"}
+                                        {cardTitle}
                                     </h5>
                                 </Card.Header>
                                 <Card.Body>
                                     <Form onSubmit={handleSubmit}>
                                         <Row className="g-3">
-                                            {/* Name – current locale */}
+                                            {/* Name – only current language */}
                                             <Col lg={6}>
                                                 <Form.Group>
                                                     <Form.Label htmlFor="user-name">
-                                                        {isGu ? "નામ" : "Name"}{" "}
+                                                        {tr("name_label")}{" "}
                                                         <span className="text-danger">
                                                             *
                                                         </span>
@@ -197,14 +185,13 @@ const UserForm = ({
                                                     <Form.Control
                                                         type="text"
                                                         id="user-name"
-                                                        placeholder={
-                                                            isGu
-                                                                ? "નામ દાખલ કરો"
-                                                                : "Enter Name"
-                                                        }
+                                                        placeholder={tr(
+                                                            "name_placeholder",
+                                                        )}
                                                         value={
-                                                            data.name[locale] ??
-                                                            ""
+                                                            data.name?.[
+                                                                currentLocale
+                                                            ] ?? ""
                                                         }
                                                         onChange={(e) =>
                                                             setName(
@@ -213,13 +200,13 @@ const UserForm = ({
                                                         }
                                                         isInvalid={
                                                             !!errors[
-                                                                `name.${locale}`
+                                                                `name.${currentLocale}`
                                                             ] || !!errors.name
                                                         }
                                                     />
                                                     <Form.Control.Feedback type="invalid">
                                                         {errors[
-                                                            `name.${locale}`
+                                                            `name.${currentLocale}`
                                                         ] || errors.name}
                                                     </Form.Control.Feedback>
                                                 </Form.Group>
@@ -229,9 +216,7 @@ const UserForm = ({
                                             <Col lg={6}>
                                                 <Form.Group>
                                                     <Form.Label htmlFor="user-email">
-                                                        {isGu
-                                                            ? "ઈમેઈલ"
-                                                            : "Email"}{" "}
+                                                        {tr("email_label")}{" "}
                                                         <span className="text-danger">
                                                             *
                                                         </span>
@@ -239,11 +224,9 @@ const UserForm = ({
                                                     <Form.Control
                                                         type="email"
                                                         id="user-email"
-                                                        placeholder={
-                                                            isGu
-                                                                ? "ઈમેઈલ દાખલ કરો"
-                                                                : "Enter Email"
-                                                        }
+                                                        placeholder={tr(
+                                                            "email_placeholder",
+                                                        )}
                                                         value={data.email}
                                                         onChange={(e) =>
                                                             setData(
@@ -265,16 +248,14 @@ const UserForm = ({
                                             <Col lg={6}>
                                                 <Form.Group>
                                                     <Form.Label htmlFor="user-phone">
-                                                        {isGu ? "ફોન" : "Phone"}
+                                                        {tr("phone_label")}
                                                     </Form.Label>
                                                     <Form.Control
                                                         type="text"
                                                         id="user-phone"
-                                                        placeholder={
-                                                            isGu
-                                                                ? "ફોન દાખલ કરો"
-                                                                : "Enter Phone"
-                                                        }
+                                                        placeholder={tr(
+                                                            "phone_placeholder",
+                                                        )}
                                                         value={data.phone ?? ""}
                                                         onChange={(e) =>
                                                             setData(
@@ -296,9 +277,7 @@ const UserForm = ({
                                             <Col lg={6}>
                                                 <Form.Group>
                                                     <Form.Label htmlFor="user-role">
-                                                        {isGu
-                                                            ? "ભૂમિકા"
-                                                            : "Role"}{" "}
+                                                        {tr("role_label")}{" "}
                                                         <span className="text-danger">
                                                             *
                                                         </span>
@@ -317,9 +296,7 @@ const UserForm = ({
                                                         }
                                                     >
                                                         <option value="">
-                                                            {isGu
-                                                                ? "ભૂમિકા પસંદ કરો"
-                                                                : "Select Role"}
+                                                            {tr("select_role")}
                                                         </option>
                                                         {roles.map((r) => (
                                                             <option
@@ -340,9 +317,7 @@ const UserForm = ({
                                             <Col lg={6}>
                                                 <Form.Group>
                                                     <Form.Label htmlFor="user-language">
-                                                        {isGu
-                                                            ? "ભાષા"
-                                                            : "Language"}{" "}
+                                                        {tr("language_label")}{" "}
                                                         <span className="text-danger">
                                                             *
                                                         </span>
@@ -361,9 +336,9 @@ const UserForm = ({
                                                         }
                                                     >
                                                         <option value="">
-                                                            {isGu
-                                                                ? "ભાષા પસંદ કરો"
-                                                                : "Select Language"}
+                                                            {tr(
+                                                                "select_language",
+                                                            )}
                                                         </option>
                                                         {languages.map((l) => (
                                                             <option
@@ -386,9 +361,7 @@ const UserForm = ({
                                             <Col lg={6}>
                                                 <Form.Group>
                                                     <Form.Label htmlFor="user-status">
-                                                        {isGu
-                                                            ? "સ્થિતિ"
-                                                            : "Status"}{" "}
+                                                        {tr("status_label")}{" "}
                                                         <span className="text-danger">
                                                             *
                                                         </span>
@@ -407,14 +380,14 @@ const UserForm = ({
                                                         }
                                                     >
                                                         <option value="unblocked">
-                                                            {isGu
-                                                                ? "પ્રકાશિત"
-                                                                : "Active"}
+                                                            {tr(
+                                                                "status_active",
+                                                            )}
                                                         </option>
                                                         <option value="blocked">
-                                                            {isGu
-                                                                ? "બ્લોક"
-                                                                : "Blocked"}
+                                                            {tr(
+                                                                "status_blocked",
+                                                            )}
                                                         </option>
                                                     </Form.Select>
                                                     <Form.Control.Feedback type="invalid">
@@ -428,12 +401,12 @@ const UserForm = ({
                                                 <Form.Group>
                                                     <Form.Label htmlFor="user-password">
                                                         {isEdit
-                                                            ? isGu
-                                                                ? "પાસવર્ડ (ખાલી રાખો તો જૂનો રહેશે)"
-                                                                : "Password (leave blank to keep current)"
-                                                            : isGu
-                                                              ? "પાસવર્ડ"
-                                                              : "Password"}
+                                                            ? tr(
+                                                                  "password_edit_label",
+                                                              )
+                                                            : tr(
+                                                                  "password_label",
+                                                              )}
                                                         {!isEdit && (
                                                             <span className="text-danger">
                                                                 {" "}
@@ -444,11 +417,9 @@ const UserForm = ({
                                                     <Form.Control
                                                         type="password"
                                                         id="user-password"
-                                                        placeholder={
-                                                            isGu
-                                                                ? "પાસવર્ડ દાખલ કરો"
-                                                                : "Enter Password"
-                                                        }
+                                                        placeholder={tr(
+                                                            "password_placeholder",
+                                                        )}
                                                         value={data.password}
                                                         onChange={(e) =>
                                                             setData(
@@ -467,36 +438,38 @@ const UserForm = ({
                                             </Col>
                                         </Row>
 
-                                        {/* Both languages reference */}
+                                        {/* All languages reference (dynamic) */}
                                         <div className="mb-3 mt-3 p-2 rounded border bg-light">
                                             <small className="text-muted d-block mb-1">
-                                                {isGu
-                                                    ? "બંને ભાષાઓ (સંદર્ભ)"
-                                                    : "Both languages (reference)"}
+                                                {tr("both_languages_reference")}
                                             </small>
                                             <div
                                                 className="d-flex flex-wrap gap-3"
                                                 style={{ fontSize: "13px" }}
                                             >
-                                                <span>
-                                                    <strong>EN:</strong>{" "}
-                                                    {data.name.en || "—"}
-                                                </span>
-                                                <span>
-                                                    <strong>GU:</strong>{" "}
-                                                    {data.name.gu || "—"}
-                                                </span>
+                                                {Object.keys(
+                                                    data.name || {},
+                                                ).map((code) => (
+                                                    <span key={code}>
+                                                        <strong>
+                                                            {code.toUpperCase()}
+                                                            :
+                                                        </strong>{" "}
+                                                        {data.name?.[code] ||
+                                                            "—"}
+                                                    </span>
+                                                ))}
                                             </div>
                                         </div>
 
                                         <div className="text-end">
                                             <Link
                                                 href={route("role.users.list", {
-                                                    rolePrefix: rolePrefix,
+                                                    rolePrefix,
                                                 })}
                                                 className="btn btn-secondary me-2"
                                             >
-                                                {isGu ? "રદ કરો" : "Cancel"}
+                                                {tr("cancel")}
                                             </Link>
                                             <button
                                                 type="submit"
@@ -504,16 +477,10 @@ const UserForm = ({
                                                 disabled={processing}
                                             >
                                                 {processing
-                                                    ? isGu
-                                                        ? "સાચવી રહ્યા છીએ..."
-                                                        : "Saving..."
+                                                    ? tr("saving")
                                                     : isEdit
-                                                      ? isGu
-                                                          ? "અપડેટ કરો"
-                                                          : "Update"
-                                                      : isGu
-                                                        ? "સાચવો"
-                                                        : "Save"}
+                                                      ? tr("update")
+                                                      : tr("save")}
                                             </button>
                                         </div>
                                     </Form>

@@ -1,9 +1,12 @@
-import React from "react";
+import React, { useMemo } from "react";
+
 import { Card, Col, Container, Form, Row } from "react-bootstrap";
+
 import BreadCrumb from "../../../Components/Common/BreadCrumb";
+
 import { Head, Link, useForm, usePage } from "@inertiajs/react";
+
 import Layout from "../../../Layouts";
-import { toast } from "react-toastify";
 
 interface Language {
     id: number;
@@ -15,60 +18,34 @@ interface Props {
     language?: Language | null;
 }
 
-const translations = {
-    en: {
-        pageTitleCreate: "Add Language",
-        pageTitleEdit: "Edit Language",
-        breadcrumbParent: "Languages",
-        cardTitleCreate: "New Language",
-        cardTitleEdit: "Language Details",
-        codeLabel: "Code",
-        codePlaceholder: "e.g. en, gu",
-        nameLabel: "Name",
-        namePlaceholder: "Enter language name",
-        codeRequired: "Please enter language code",
-        nameRequired: "Please enter language name",
-        cancel: "Cancel",
-        save: "Save",
-        update: "Update",
-        saving: "Saving...",
-        createSuccess: "Language created successfully",
-        updateSuccess: "Language updated successfully",
-        fixErrors: "Please solve this issue.",
-    },
-    gu: {
-        pageTitleCreate: "ભાષા ઉમેરો",
-        pageTitleEdit: "ભાષા ફેરફાર કરો",
-        breadcrumbParent: "ભાષાઓ",
-        cardTitleCreate: "નવી ભાષા",
-        cardTitleEdit: "ભાષા વિગતો",
-        codeLabel: "કોડ",
-        codePlaceholder: "ઉદા. en, gu",
-        nameLabel: "નામ",
-        namePlaceholder: "ભાષાનું નામ દાખલ કરો",
-        codeRequired: "કૃપા કરીને ભાષા કોડ દાખલ કરો",
-        nameRequired: "કૃપા કરીને ભાષાનું નામ દાખલ કરો",
-        cancel: "રદ કરો",
-        save: "સાચવો",
-        update: "અપડેટ કરો",
-        saving: "સાચવી રહ્યા છીએ...",
-        createSuccess: "ભાષા સફળતાપૂર્વક બનાવી",
-        updateSuccess: "ભાષા સફળતાપૂર્વક અપડેટ થઈ",
-        fixErrors: "કૃપા કરીને ભૂલો સુધારો.",
-    },
+const createTranslator = (translations: Record<string, any>) => {
+    return (
+        key: string,
+        replacements: Record<string, string | number> = {},
+    ): string => {
+        let text = translations[key] ?? key;
+
+        Object.entries(replacements).forEach(([name, value]) => {
+            text = text.replace(`:${name}`, String(value));
+        });
+
+        return text;
+    };
 };
 
 const LangForm: React.FC<Props> = ({ language = null }) => {
-    const page = usePage().props as {
-        locale?: string;
-        errors?: Record<string, string>;
-    };
-    const { auth } = usePage().props as any;
+    const page = usePage().props as any;
+
+    const { auth, translations = {}, locale } = page;
+
+    const currentLocale = locale || "gu";
+
+    const tr = useMemo(() => createTranslator(translations), [translations]);
+
     const rolePrefix = auth?.user?.role?.name
         ? auth.user.role.name.toLowerCase().replace(/\s+/g, "-")
         : "admin";
-    const locale = (page.locale === "gu" ? "gu" : "en") as "en" | "gu";
-    const tr = translations[locale];
+
     const isEdit = !!language?.id;
 
     const { data, setData, post, put, processing, errors } = useForm({
@@ -82,53 +59,54 @@ const LangForm: React.FC<Props> = ({ language = null }) => {
         if (isEdit) {
             put(
                 route("role.languages.update", {
-                    rolePrefix: rolePrefix,
+                    rolePrefix,
                     language: language!.id,
                 }),
                 {
-                    onSuccess: () => toast.success(tr.updateSuccess),
-                    onError: () => toast.error(tr.fixErrors),
+                    preserveScroll: true,
                 },
             );
         } else {
             post(
                 route("role.languages.store", {
-                    rolePrefix: rolePrefix,
+                    rolePrefix,
                 }),
                 {
-                    onSuccess: () => toast.success(tr.createSuccess),
-                    onError: () => toast.error(tr.fixErrors),
+                    preserveScroll: true,
                 },
             );
         }
     };
 
+    const pageTitle = isEdit ? tr("edit_language") : tr("add_language");
+
+    const cardTitle = isEdit ? tr("language_details") : tr("new_language");
+
     return (
         <React.Fragment>
-            <Head title={isEdit ? tr.pageTitleEdit : tr.pageTitleCreate} />
+            <Head title={pageTitle} />
+
             <div className="page-content">
                 <Container fluid>
-                    <BreadCrumb
-                        title={isEdit ? tr.pageTitleEdit : tr.pageTitleCreate}
-                        pageTitle={tr.breadcrumbParent}
-                    />
+                    <BreadCrumb title={pageTitle} pageTitle={tr("languages")} />
 
                     <Row>
                         <Col lg={12}>
                             <Card>
                                 <Card.Header>
                                     <h5 className="card-title mb-0">
-                                        {isEdit
-                                            ? tr.cardTitleEdit
-                                            : tr.cardTitleCreate}
-                                        {/* {isEdit && (
+                                        {cardTitle}
+
+                                        {isEdit && (
                                             <span
                                                 className="badge bg-secondary ms-2"
-                                                style={{ fontSize: "10px" }}
+                                                style={{
+                                                    fontSize: "10px",
+                                                }}
                                             >
-                                                ID #{language!.id}
+                                                {tr("id")} #{language!.id}
                                             </span>
-                                        )} */}
+                                        )}
                                     </h5>
                                 </Card.Header>
 
@@ -139,17 +117,18 @@ const LangForm: React.FC<Props> = ({ language = null }) => {
                                             <Col lg={6}>
                                                 <Form.Group>
                                                     <Form.Label htmlFor="language-code">
-                                                        {tr.codeLabel}{" "}
+                                                        {tr("language_code")}{" "}
                                                         <span className="text-danger">
                                                             *
                                                         </span>
                                                     </Form.Label>
+
                                                     <Form.Control
                                                         type="text"
                                                         id="language-code"
-                                                        placeholder={
-                                                            tr.codePlaceholder
-                                                        }
+                                                        placeholder={tr(
+                                                            "language_code_placeholder",
+                                                        )}
                                                         value={data.code}
                                                         onChange={(e) =>
                                                             setData(
@@ -163,9 +142,12 @@ const LangForm: React.FC<Props> = ({ language = null }) => {
                                                             !!errors.code
                                                         }
                                                     />
+
                                                     <Form.Control.Feedback type="invalid">
                                                         {errors.code ||
-                                                            tr.codeRequired}
+                                                            tr(
+                                                                "language_code_required",
+                                                            )}
                                                     </Form.Control.Feedback>
                                                 </Form.Group>
                                             </Col>
@@ -174,17 +156,18 @@ const LangForm: React.FC<Props> = ({ language = null }) => {
                                             <Col lg={6}>
                                                 <Form.Group>
                                                     <Form.Label htmlFor="language-name">
-                                                        {tr.nameLabel}{" "}
+                                                        {tr("language_name")}{" "}
                                                         <span className="text-danger">
                                                             *
                                                         </span>
                                                     </Form.Label>
+
                                                     <Form.Control
                                                         type="text"
                                                         id="language-name"
-                                                        placeholder={
-                                                            tr.namePlaceholder
-                                                        }
+                                                        placeholder={tr(
+                                                            "language_name_placeholder",
+                                                        )}
                                                         value={data.name}
                                                         onChange={(e) =>
                                                             setData(
@@ -196,9 +179,12 @@ const LangForm: React.FC<Props> = ({ language = null }) => {
                                                             !!errors.name
                                                         }
                                                     />
+
                                                     <Form.Control.Feedback type="invalid">
                                                         {errors.name ||
-                                                            tr.nameRequired}
+                                                            tr(
+                                                                "language_name_required",
+                                                            )}
                                                     </Form.Control.Feedback>
                                                 </Form.Group>
                                             </Col>
@@ -209,23 +195,24 @@ const LangForm: React.FC<Props> = ({ language = null }) => {
                                                 href={route(
                                                     "role.languages.list",
                                                     {
-                                                        rolePrefix: rolePrefix,
+                                                        rolePrefix,
                                                     },
                                                 )}
                                                 className="btn btn-secondary me-2"
                                             >
-                                                {tr.cancel}
+                                                {tr("cancel")}
                                             </Link>
+
                                             <button
                                                 type="submit"
                                                 className="btn btn-success"
                                                 disabled={processing}
                                             >
                                                 {processing
-                                                    ? tr.saving
+                                                    ? tr("saving")
                                                     : isEdit
-                                                      ? tr.update
-                                                      : tr.save}
+                                                      ? tr("update")
+                                                      : tr("save")}
                                             </button>
                                         </div>
                                     </Form>
@@ -240,4 +227,5 @@ const LangForm: React.FC<Props> = ({ language = null }) => {
 };
 
 LangForm.layout = (page: any) => <Layout children={page} />;
+
 export default LangForm;
